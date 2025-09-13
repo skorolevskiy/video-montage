@@ -4,6 +4,7 @@ metadata:
   name: video-montage-service
   labels:
     app: video-montage
+  namespace: video-montage
 spec:
   type: NodePort
   ports:
