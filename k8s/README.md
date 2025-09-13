@@ -1,5 +1,10 @@
 # Deploy Video Montage Application to Kubernetes
 
+## Image Source
+The deployment uses the Docker image built by GitHub Actions and published to GitHub Container Registry:
+- **Image**: `ghcr.io/timur-riazantsev/video-montage:latest`
+- **Registry**: GitHub Container Registry (ghcr.io)
+
 ## Quick Deploy
 ```bash
 # Deploy all resources
@@ -7,7 +12,6 @@ kubectl apply -f k8s/
 
 # Or deploy step by step
 kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/configmap.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
@@ -45,8 +49,15 @@ kubectl delete -f k8s/
 ```
 
 ## Configuration Notes
-- **Replicas**: 2 (can be scaled)
+- **Image**: Built from GitHub Actions and stored in GitHub Container Registry
+- **Replicas**: 1 (can be scaled)
 - **NodePort**: 30800 (accessible on all cluster nodes)
-- **Resource Limits**: 2Gi memory, 1 CPU core
-- **Temp Storage**: 5Gi ephemeral volume for video processing
-- **Health Checks**: Liveness and readiness probes on /health endpoint
+- **Namespace**: video-montage
+- **Health Checks**: Simplified liveness and readiness probes on /health endpoint
+- **No resource limits**: Allows flexible resource usage based on workload
+
+## Building and Pushing New Images
+To update the deployed image:
+1. Push changes to the repository
+2. Run the GitHub Actions workflow with "Push image to registry" enabled
+3. Restart the deployment: `kubectl rollout restart deployment video-montage -n video-montage`
