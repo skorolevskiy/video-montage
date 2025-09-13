@@ -97,8 +97,14 @@ async def process_video(
         })
         processor.cleanup()
 
+class VideoMergeRequestInput(BaseModel):
+    video_urls: List[str]
+    karaoke_mode: bool
+    subtitles_data: List[SubtitleItem]
+    output_filename: str
+
 class VideoMergeBody(BaseModel):
-    video_merge_request: dict
+    video_merge_request: VideoMergeRequestInput
     music_file: str
 
 @app.post("/merge-videos", response_model=VideoMergeResponse)
@@ -108,8 +114,13 @@ async def merge_videos(
 ):
     """Start video merge process"""
     try:
-        # Convert dict to VideoMergeRequest
-        video_merge_request = VideoMergeRequest(**body.video_merge_request)
+        # Convert to VideoMergeRequest
+        video_merge_request = VideoMergeRequest(
+            video_urls=body.video_merge_request.video_urls,
+            karaoke_mode=body.video_merge_request.karaoke_mode,
+            subtitles_data=body.video_merge_request.subtitles_data,
+            output_filename=body.video_merge_request.output_filename
+        )
         
         # Validate request
         if len(video_merge_request.video_urls) > MAX_VIDEOS:

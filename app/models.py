@@ -16,7 +16,7 @@ class SubtitleStyle(BaseModel):
     margin_v: int = 30
 
 class VideoMergeRequest(BaseModel):
-    video_urls: List[HttpUrl]
+    video_urls: List[str]
     output_filename: str = "merged_video.mp4"
     karaoke_mode: bool = False
     subtitles_data: Optional[List[SubtitleItem]] = None
