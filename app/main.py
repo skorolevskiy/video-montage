@@ -98,8 +98,8 @@ async def process_video(
         processor.cleanup()
 
 class VideoMergeBody(BaseModel):
-    video_merge_request: VideoMergeRequest
-    music_url: str
+    video_merge_request: dict
+    music_file: str
 
 @app.post("/merge-videos", response_model=VideoMergeResponse)
 async def merge_videos(
@@ -108,12 +108,15 @@ async def merge_videos(
 ):
     """Start video merge process"""
     try:
+        # Convert dict to VideoMergeRequest
+        video_merge_request = VideoMergeRequest(**body.video_merge_request)
+        
         # Validate request
-        if len(body.video_merge_request.video_urls) > MAX_VIDEOS:
+        if len(video_merge_request.video_urls) > MAX_VIDEOS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
 
         # Get file extension from URL
-        parsed_url = urllib.parse.urlparse(body.music_url)
+        parsed_url = urllib.parse.urlparse(body.music_file)
         file_ext = os.path.splitext(parsed_url.path)[1].lower()
         if not file_ext:
             file_ext = '.mp3'  # Default to mp3 if no extension in URL
@@ -127,7 +130,7 @@ async def merge_videos(
 
         # Download music file
         async with aiohttp.ClientSession() as session:
-            async with session.get(body.music_url) as response:
+            async with session.get(body.music_file) as response:
                 if response.status != 200:
                     raise HTTPException(status_code=400, detail="Could not download music file")
                 
@@ -164,7 +167,7 @@ async def merge_videos(
         background_tasks.add_task(
             process_video,
             video_id,
-            body.video_merge_request,
+            video_merge_request,
             music_path
         )
 
