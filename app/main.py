@@ -107,13 +107,28 @@ class VideoMergeBody(BaseModel):
     video_merge_request: VideoMergeRequestInput
     music_file: str
 
+from fastapi.encoders import jsonable_encoder
+from json import loads
+
 @app.post("/merge-videos", response_model=VideoMergeResponse)
 async def merge_videos(
     background_tasks: BackgroundTasks,
-    body: VideoMergeBody
+    request_body: dict
 ):
     """Start video merge process"""
     try:
+        # Проверяем, есть ли данные во вложенном 'body'
+        body_data = request_body.get('body', request_body)
+        
+        # Преобразуем в VideoMergeBody
+        try:
+            body = VideoMergeBody(**body_data)
+        except Exception as validation_error:
+            raise HTTPException(
+                status_code=422,
+                detail=f"Invalid request format: {str(validation_error)}"
+            )
+
         # Convert to VideoMergeRequest
         video_merge_request = VideoMergeRequest(
             video_urls=body.video_merge_request.video_urls,
