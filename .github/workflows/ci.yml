@@ -58,7 +58,7 @@ jobs:
       with:
         context: .
         file: ./Dockerfile
-        platforms: linux/arm64,linux/amd64
+        platforms: linux/arm64
         push: ${{ inputs.push_to_registry }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
