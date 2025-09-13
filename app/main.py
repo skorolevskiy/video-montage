@@ -1,10 +1,12 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request
 from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel
 import os
 import tempfile
 import aiohttp
 import urllib.parse
+import logging
+import traceback
 from typing import List, Optional, Dict
 import shutil
 import uuid
@@ -29,6 +31,27 @@ app = FastAPI(
     description="API for merging videos with music and subtitles",
     version="1.0.0"
 )
+
+# Настройка логирования
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    try:
+        response = await call_next(request)
+        return response
+    except Exception as e:
+        logger.error(f"Error processing request {request.method} {request.url}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "detail": "Internal server error", 
+                "error": str(e),
+                "traceback": traceback.format_exc()
+            }
+        )
 
 # Configuration
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
@@ -90,6 +113,8 @@ async def process_video(
 
     except Exception as e:
         # Update status to failed
+        logger.error(f"Error in process_video for {video_id}: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         video_tasks[video_id].update({
             "status": VideoStatus.FAILED,
             "error_message": str(e),
@@ -97,52 +122,27 @@ async def process_video(
         })
         processor.cleanup()
 
-class VideoMergeRequestInput(BaseModel):
-    video_urls: List[str]
-    karaoke_mode: bool
-    subtitles_data: List[SubtitleItem]
-    output_filename: str
-
-class VideoMergeBody(BaseModel):
-    video_merge_request: VideoMergeRequestInput
-    music_file: str
-
-from fastapi.encoders import jsonable_encoder
-from json import loads
+class VideoMergeSimpleRequest(BaseModel):
+    video_files: List[str]
+    music_url: str
+    karaoke_mode: bool = False
+    subtitles_data: List[SubtitleItem] = []
+    output_filename: str = "output.mp4"
 
 @app.post("/merge-videos", response_model=VideoMergeResponse)
 async def merge_videos(
     background_tasks: BackgroundTasks,
-    request_body: dict
+    request: VideoMergeSimpleRequest
 ):
     """Start video merge process"""
+    logger.info(f"Received merge-videos request: {request}")
     try:
-        # Проверяем, есть ли данные во вложенном 'body'
-        body_data = request_body.get('body', request_body)
-        
-        # Преобразуем в VideoMergeBody
-        try:
-            body = VideoMergeBody(**body_data)
-        except Exception as validation_error:
-            raise HTTPException(
-                status_code=422,
-                detail=f"Invalid request format: {str(validation_error)}"
-            )
-
-        # Convert to VideoMergeRequest
-        video_merge_request = VideoMergeRequest(
-            video_urls=body.video_merge_request.video_urls,
-            karaoke_mode=body.video_merge_request.karaoke_mode,
-            subtitles_data=body.video_merge_request.subtitles_data,
-            output_filename=body.video_merge_request.output_filename
-        )
-        
         # Validate request
-        if len(video_merge_request.video_urls) > MAX_VIDEOS:
+        if len(request.video_files) > MAX_VIDEOS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
 
         # Get file extension from URL
-        parsed_url = urllib.parse.urlparse(body.music_file)
+        parsed_url = urllib.parse.urlparse(request.music_url)
         file_ext = os.path.splitext(parsed_url.path)[1].lower()
         if not file_ext:
             file_ext = '.mp3'  # Default to mp3 if no extension in URL
@@ -156,7 +156,7 @@ async def merge_videos(
 
         # Download music file
         async with aiohttp.ClientSession() as session:
-            async with session.get(body.music_file) as response:
+            async with session.get(request.music_url) as response:
                 if response.status != 200:
                     raise HTTPException(status_code=400, detail="Could not download music file")
                 
@@ -171,6 +171,14 @@ async def merge_videos(
                         if not chunk:
                             break
                         f.write(chunk)
+
+        # Create VideoMergeRequest for processing
+        video_merge_request = VideoMergeRequest(
+            video_urls=request.video_files,
+            karaoke_mode=request.karaoke_mode,
+            subtitles_data=request.subtitles_data,
+            output_filename=request.output_filename
+        )
 
         # Initialize task status
         video_tasks[video_id] = {
@@ -204,9 +212,13 @@ async def merge_videos(
         )
 
     except aiohttp.ClientError as e:
+        logger.error(f"HTTP client error: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
         raise HTTPException(status_code=400, detail=f"Failed to download music file: {str(e)}")
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Unexpected error in merge_videos: {str(e)}")
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/download/{video_id}")
 async def download_video(video_id: str):

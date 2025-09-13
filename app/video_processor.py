@@ -14,6 +14,92 @@ class VideoProcessor:
         self.work_dir = work_dir or tempfile.mkdtemp(prefix='video_processing_')
         os.makedirs(self.work_dir, exist_ok=True)
         self.temp_files = []
+        
+        # Find FFmpeg and FFprobe paths
+        self.ffmpeg_path = self._find_ffmpeg()
+        self.ffprobe_path = self._find_ffprobe()
+        
+    def _find_ffmpeg(self) -> str:
+        """Find FFmpeg executable"""
+        # Check if ffmpeg is in PATH
+        try:
+            subprocess.run(['ffmpeg', '-version'], capture_output=True)
+            return 'ffmpeg'
+        except FileNotFoundError:
+            pass
+            
+        # Check local directory (Windows)
+        local_ffmpeg_win = os.path.join(os.path.dirname(__file__), '..', 'ffmpeg-bin', 'ffmpeg.exe')
+        if os.path.exists(local_ffmpeg_win):
+            return local_ffmpeg_win
+            
+        # Check local directory (Linux)
+        local_ffmpeg_linux = os.path.join(os.path.dirname(__file__), '..', 'ffmpeg-bin', 'ffmpeg')
+        if os.path.exists(local_ffmpeg_linux):
+            return local_ffmpeg_linux
+            
+        # Check common installation paths (Windows)
+        common_paths_win = [
+            r'C:\ffmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files\ffmpeg\bin\ffmpeg.exe',
+            r'C:\Program Files (x86)\ffmpeg\bin\ffmpeg.exe'
+        ]
+        for path in common_paths_win:
+            if os.path.exists(path):
+                return path
+                
+        # Check common installation paths (Linux)
+        common_paths_linux = [
+            '/usr/bin/ffmpeg',
+            '/usr/local/bin/ffmpeg',
+            '/opt/ffmpeg/bin/ffmpeg'
+        ]
+        for path in common_paths_linux:
+            if os.path.exists(path):
+                return path
+                
+        raise FileNotFoundError("FFmpeg not found. Please install FFmpeg or place it in ffmpeg-bin directory.")
+        
+    def _find_ffprobe(self) -> str:
+        """Find FFprobe executable"""
+        # Check if ffprobe is in PATH
+        try:
+            subprocess.run(['ffprobe', '-version'], capture_output=True)
+            return 'ffprobe'
+        except FileNotFoundError:
+            pass
+            
+        # Check local directory (Windows)
+        local_ffprobe_win = os.path.join(os.path.dirname(__file__), '..', 'ffmpeg-bin', 'ffprobe.exe')
+        if os.path.exists(local_ffprobe_win):
+            return local_ffprobe_win
+            
+        # Check local directory (Linux)
+        local_ffprobe_linux = os.path.join(os.path.dirname(__file__), '..', 'ffmpeg-bin', 'ffprobe')
+        if os.path.exists(local_ffprobe_linux):
+            return local_ffprobe_linux
+            
+        # Check common installation paths (Windows)
+        common_paths_win = [
+            r'C:\ffmpeg\bin\ffprobe.exe',
+            r'C:\Program Files\ffmpeg\bin\ffprobe.exe',
+            r'C:\Program Files (x86)\ffmpeg\bin\ffprobe.exe'
+        ]
+        for path in common_paths_win:
+            if os.path.exists(path):
+                return path
+                
+        # Check common installation paths (Linux)
+        common_paths_linux = [
+            '/usr/bin/ffprobe',
+            '/usr/local/bin/ffprobe',
+            '/opt/ffmpeg/bin/ffprobe'
+        ]
+        for path in common_paths_linux:
+            if os.path.exists(path):
+                return path
+                
+        raise FileNotFoundError("FFprobe not found. Please install FFmpeg or place it in ffmpeg-bin directory.")
 
     async def download_video(self, url: str, output_filename: str) -> Optional[str]:
         """Downloads video from URL using aiohttp"""
@@ -37,7 +123,7 @@ class VideoProcessor:
         """Gets video information using ffprobe"""
         try:
             cmd = [
-                'ffprobe', '-v', 'quiet', '-print_format', 'json',
+                self.ffprobe_path, '-v', 'quiet', '-print_format', 'json',
                 '-show_streams', '-show_format', video_path
             ]
             result = subprocess.run(cmd, capture_output=True, text=True)
@@ -113,17 +199,23 @@ class VideoProcessor:
             concat_file = os.path.join(self.work_dir, "concat_list.txt")
             with open(concat_file, 'w') as f:
                 for video in downloaded_videos:
-                    f.write(f"file '{video}'\\n")
+                    f.write(f"file '{video}'\n")
             self.temp_files.append(concat_file)
 
             # Merge videos without audio
             merged_video_no_audio = os.path.join(self.work_dir, "merged_no_audio.mp4")
             cmd_concat = [
-                'ffmpeg', '-f', 'concat', '-safe', '0', '-i', concat_file,
+                self.ffmpeg_path, '-f', 'concat', '-safe', '0', '-i', concat_file,
                 '-c', 'copy', '-an', merged_video_no_audio, '-y'
             ]
+            print(f"DEBUG: Running FFmpeg command: {' '.join(cmd_concat)}")
+            print(f"DEBUG: Concat file content:")
+            with open(concat_file, 'r') as f:
+                print(f.read())
             result = subprocess.run(cmd_concat, capture_output=True, text=True)
             if result.returncode != 0:
+                print(f"DEBUG: FFmpeg stderr: {result.stderr}")
+                print(f"DEBUG: FFmpeg stdout: {result.stdout}")
                 raise HTTPException(status_code=500, detail=f"Error merging videos: {result.stderr}")
             
             self.temp_files.append(merged_video_no_audio)
@@ -138,7 +230,7 @@ class VideoProcessor:
                 style = subtitle_style or SubtitleStyle()
                 
                 cmd_sub = [
-                    'ffmpeg', '-i', current_video, '-vf',
+                    self.ffmpeg_path, '-i', current_video, '-vf',
                     f"subtitles={subtitle_file}:force_style='FontName={style.font_name},FontSize={style.font_size},"
                     f"PrimaryColour={style.font_color},BackColour={style.background_color},Bold={1 if style.bold else 0},"
                     f"Alignment={style.alignment},MarginV={style.margin_v}'",
@@ -157,7 +249,7 @@ class VideoProcessor:
             # Prepare music
             prepared_audio = os.path.join(self.work_dir, "prepared_audio.mp3")
             cmd_audio = [
-                'ffmpeg', '-stream_loop', '-1', '-i', music_path,
+                self.ffmpeg_path, '-stream_loop', '-1', '-i', music_path,
                 '-t', str(video_duration), '-acodec', 'libmp3lame',
                 '-ab', '128k', prepared_audio, '-y'
             ]
@@ -170,7 +262,7 @@ class VideoProcessor:
             # Final merge with music
             final_output = os.path.join(self.work_dir, output_filename)
             cmd_final = [
-                'ffmpeg', '-i', current_video, '-i', prepared_audio,
+                self.ffmpeg_path, '-i', current_video, '-i', prepared_audio,
                 '-c:v', 'libx264', '-c:a', 'aac', '-strict', 'experimental',
                 '-shortest', final_output, '-y'
             ]
@@ -200,7 +292,7 @@ class VideoProcessor:
     def check_ffmpeg(self) -> Optional[str]:
         """Checks if FFmpeg is installed and returns version"""
         try:
-            result = subprocess.run(['ffmpeg', '-version'], capture_output=True, text=True)
+            result = subprocess.run([self.ffmpeg_path, '-version'], capture_output=True, text=True)
             if result.returncode == 0:
                 return result.stdout.split('\\n')[0]
             return None
