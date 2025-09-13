@@ -1,7 +1,9 @@
-from fastapi import FastAPI, UploadFile, File, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse, JSONResponse
 import os
 import tempfile
+import aiohttp
+import urllib.parse
 from typing import List, Optional, Dict
 import shutil
 import uuid
@@ -98,28 +100,44 @@ async def process_video(
 async def merge_videos(
     background_tasks: BackgroundTasks,
     video_merge_request: VideoMergeRequest,
-    music_file: UploadFile = File(...)
+    music_url: str
 ):
     """Start video merge process"""
-    # Validate request
-    if len(video_merge_request.video_urls) > MAX_VIDEOS:
-        raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
-
-    if music_file.size > MAX_FILE_SIZE:
-        raise HTTPException(status_code=400, detail="Music file too large")
-
-    file_ext = os.path.splitext(music_file.filename)[1].lower()
-    if file_ext not in SUPPORTED_AUDIO_FORMATS:
-        raise HTTPException(status_code=400, detail="Unsupported audio format")
-
     try:
+        # Validate request
+        if len(video_merge_request.video_urls) > MAX_VIDEOS:
+            raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
+
+        # Get file extension from URL
+        parsed_url = urllib.parse.urlparse(music_url)
+        file_ext = os.path.splitext(parsed_url.path)[1].lower()
+        if not file_ext:
+            file_ext = '.mp3'  # Default to mp3 if no extension in URL
+        
+        if file_ext not in SUPPORTED_AUDIO_FORMATS:
+            raise HTTPException(status_code=400, detail="Unsupported audio format")
+
         # Generate unique ID for this task
         video_id = str(uuid.uuid4())
-
-        # Save music file
         music_path = os.path.join(TEMP_DIR, f"music_{video_id}{file_ext}")
-        with open(music_path, "wb") as f:
-            shutil.copyfileobj(music_file.file, f)
+
+        # Download music file
+        async with aiohttp.ClientSession() as session:
+            async with session.get(music_url) as response:
+                if response.status != 200:
+                    raise HTTPException(status_code=400, detail="Could not download music file")
+                
+                content_length = response.content_length
+                if content_length and content_length > MAX_FILE_SIZE:
+                    raise HTTPException(status_code=400, detail="Music file too large")
+
+                # Save music file
+                with open(music_path, "wb") as f:
+                    while True:
+                        chunk = await response.content.read(8192)
+                        if not chunk:
+                            break
+                        f.write(chunk)
 
         # Initialize task status
         video_tasks[video_id] = {
@@ -152,6 +170,8 @@ async def merge_videos(
             message="Video processing started"
         )
 
+    except aiohttp.ClientError as e:
+        raise HTTPException(status_code=400, detail=f"Failed to download music file: {str(e)}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
