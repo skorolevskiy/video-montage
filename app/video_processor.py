@@ -157,9 +157,9 @@ class VideoProcessor:
         try:
             with open(output_path, 'w', encoding='utf-8') as f:
                 for i, subtitle in enumerate(subtitles_data, 1):
-                    f.write(f"{i}\\n")
-                    f.write(f"{self.format_time_srt(subtitle.start)} --> {self.format_time_srt(subtitle.end)}\\n")
-                    f.write(f"{subtitle.text}\\n\\n")
+                    f.write(f"{i}\n")
+                    f.write(f"{self.format_time_srt(subtitle.start)} --> {self.format_time_srt(subtitle.end)}\n")
+                    f.write(f"{subtitle.text}\n\n")
 
             self.temp_files.append(output_path)
             return output_path
@@ -173,6 +173,64 @@ class VideoProcessor:
         secs = int(seconds % 60)
         milliseconds = int((seconds % 1) * 1000)
         return f"{hours:02d}:{minutes:02d}:{secs:02d},{milliseconds:03d}"
+
+    def create_ass_karaoke_subtitles(self, subtitles_data: List[SubtitleItem], output_path: str, subtitle_style: Optional[SubtitleStyle] = None) -> str:
+        """Creates ASS subtitle file with karaoke effect"""
+        try:
+            style = subtitle_style or SubtitleStyle()
+            
+            # ASS header with enhanced karaoke styling
+            ass_content = """[Script Info]
+Title: Karaoke Subtitles
+ScriptType: v4.00+
+
+[V4+ Styles]
+Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
+Style: Karaoke,Arial,12,&H00FFFFFF,&H00808080,&H00000000,&H80000000,1,0,0,0,100,100,0,0,1,3,2,2,30,30,50,1
+
+[Events]
+Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
+"""
+            
+            for subtitle in subtitles_data:
+                start_time = self.format_time_ass(subtitle.start)
+                end_time = self.format_time_ass(subtitle.end)
+                
+                # Calculate karaoke timing based on total duration and word count
+                words = subtitle.text.split()
+                total_duration = subtitle.end - subtitle.start  # Total time for the phrase
+                
+                if not words:
+                    continue
+                    
+                # Calculate time per word in centiseconds
+                time_per_word_cs = int((total_duration * 100) / len(words))
+                
+                # Set reasonable bounds: minimum 20cs (0.2s), maximum 200cs (2s) per word
+                time_per_word_cs = max(20, min(200, time_per_word_cs))
+                
+                karaoke_text = ""
+                
+                for i, word in enumerate(words):
+                    karaoke_text += f"{{\\k{time_per_word_cs}}}{word} "
+                
+                # Add karaoke dialogue line
+                ass_content += f"Dialogue: 0,{start_time},{end_time},Karaoke,,0,0,0,karaoke,{karaoke_text.strip()}\n"
+            
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write(ass_content)
+            
+            self.temp_files.append(output_path)
+            return output_path
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error creating karaoke subtitles: {str(e)}")
+
+    def format_time_ass(self, seconds: float) -> str:
+        """Converts seconds to ASS time format"""
+        hours = int(seconds // 3600)
+        minutes = int((seconds % 3600) // 60)
+        secs = seconds % 60
+        return f"{hours}:{minutes:02d}:{secs:05.2f}"
 
     async def merge_videos(
         self,
@@ -223,24 +281,54 @@ class VideoProcessor:
 
             # Add subtitles if provided
             if subtitles_data:
-                subtitle_file = os.path.join(self.work_dir, "subtitles.srt")
-                self.create_srt_subtitles(subtitles_data, subtitle_file)
+                print(f"DEBUG: Adding subtitles, data: {subtitles_data}, karaoke_mode: {karaoke_mode}")
+                
+                if karaoke_mode:
+                    # Create ASS file for karaoke effect
+                    subtitle_file = os.path.join(self.work_dir, "subtitles.ass")
+                    self.create_ass_karaoke_subtitles(subtitles_data, subtitle_file, subtitle_style)
+                else:
+                    # Create regular SRT file
+                    subtitle_file = os.path.join(self.work_dir, "subtitles.srt")
+                    self.create_srt_subtitles(subtitles_data, subtitle_file)
+                
+                print(f"DEBUG: Created subtitle file: {subtitle_file}")
+                with open(subtitle_file, 'r', encoding='utf-8') as f:
+                    print(f"DEBUG: Subtitle file content:\n{f.read()}")
                 
                 video_with_subtitles = os.path.join(self.work_dir, "video_with_subtitles.mp4")
-                style = subtitle_style or SubtitleStyle()
                 
-                cmd_sub = [
-                    self.ffmpeg_path, '-i', current_video, '-vf',
-                    f"subtitles={subtitle_file}:force_style='FontName={style.font_name},FontSize={style.font_size},"
-                    f"PrimaryColour={style.font_color},BackColour={style.background_color},Bold={1 if style.bold else 0},"
-                    f"Alignment={style.alignment},MarginV={style.margin_v}'",
-                    '-c:a', 'copy', video_with_subtitles, '-y'
-                ]
+                if karaoke_mode:
+                    # For ASS files, use ass filter
+                    cmd_sub = [
+                        self.ffmpeg_path, '-i', current_video, '-vf',
+                        f"ass={subtitle_file}",
+                        '-c:a', 'copy', video_with_subtitles, '-y'
+                    ]
+                else:
+                    # For SRT files, use subtitles filter with styling
+                    style = subtitle_style or SubtitleStyle()
+                    cmd_sub = [
+                        self.ffmpeg_path, '-i', current_video, '-vf',
+                        f"subtitles={subtitle_file}:force_style='FontName={style.font_name},FontSize={style.font_size},"
+                        f"PrimaryColour={style.font_color},BackColour={style.background_color},Bold={1 if style.bold else 0},"
+                        f"Alignment={style.alignment},MarginV={style.margin_v}'",
+                        '-c:a', 'copy', video_with_subtitles, '-y'
+                    ]
                 
+                print(f"DEBUG: Running subtitle command: {' '.join(cmd_sub)}")
                 result = subprocess.run(cmd_sub, capture_output=True, text=True)
+                print(f"DEBUG: Subtitle command result: returncode={result.returncode}")
+                if result.stderr:
+                    print(f"DEBUG: Subtitle stderr: {result.stderr}")
                 if result.returncode == 0:
                     current_video = video_with_subtitles
                     self.temp_files.append(video_with_subtitles)
+                    print(f"DEBUG: Successfully added subtitles to video")
+                else:
+                    print(f"DEBUG: Failed to add subtitles: {result.stderr}")
+            else:
+                print("DEBUG: No subtitles data provided")
 
             # Get video duration for music loop
             video_info = self.get_video_info(current_video)
