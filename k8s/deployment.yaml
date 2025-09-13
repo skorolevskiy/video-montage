@@ -18,13 +18,16 @@ spec:
     spec:
       containers:
       - name: video-montage
-        image: ghcr.io/timur-riazantsev/video-montage
+        image: ghcr.io/timur-riazantsev/video-montage:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
           name: http
         command: ["uvicorn"]
         args: ["app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+        env:
+        - name: GIT_COMMIT
+          value: "{{ .Values.image.tag | default \"latest\" }}"
         livenessProbe:
           httpGet:
             path: /health
