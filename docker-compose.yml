@@ -1,0 +1,8 @@
+version: "3.8"
+
+services:
+  video-montage:
+    build: .
+    container_name: video-montage
+    ports:
+      - "8000:8000"
