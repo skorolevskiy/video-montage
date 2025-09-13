@@ -2,7 +2,7 @@
 
 ## Image Source
 The deployment uses the Docker image built by GitHub Actions and published to GitHub Container Registry:
-- **Image**: `ghcr.io/timur-riazantsev/video-montage:latest`
+- **Image**: `ghcr.io/skorolevskiy/video-montage:latest`
 - **Registry**: GitHub Container Registry (ghcr.io)
 
 ## Quick Deploy

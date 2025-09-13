@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: video-montage
-        image: ghcr.io/timur-riazantsev/video-montage:latest
+        image: ghcr.io/skorolevskiy/video-montage:latest
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
