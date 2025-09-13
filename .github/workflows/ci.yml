@@ -4,12 +4,6 @@ on:
   push:
     branches: [ main ]
   workflow_dispatch:
-    inputs:
-      push_to_registry:
-        description: 'Push image to registry'
-        required: false
-        default: false
-        type: boolean
 
 env:
   REGISTRY: ghcr.io
@@ -20,12 +14,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 60
     permissions:
-      contents: read
+      contents: write
       packages: write
 
     steps:
     - name: Checkout repository
       uses: actions/checkout@v4
+      with:
+        token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Set up QEMU for multi-platform builds
       uses: docker/setup-qemu-action@v3
@@ -47,6 +43,8 @@ jobs:
           type=ref,event=branch
           type=ref,event=pr
           type=sha,prefix={{branch}}-
+          type=sha,format=short
+          type=raw,value={{date 'YYYYMMDD-HHmmss'}}
           type=raw,value=latest,enable={{is_default_branch}}
         labels: |
           org.opencontainers.image.title=${{ github.repository }}
@@ -56,7 +54,6 @@ jobs:
           org.opencontainers.image.revision=${{ github.sha }}
 
     - name: Log in to Container Registry
-      if: github.event_name == 'push' || inputs.push_to_registry == true
       uses: docker/login-action@v3
       with:
         registry: ${{ env.REGISTRY }}
@@ -70,7 +67,7 @@ jobs:
         context: .
         file: ./Dockerfile
         platforms: linux/arm64
-        push: ${{ github.event_name == 'push' || inputs.push_to_registry == true }}
+        push: true
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
         cache-from: type=gha
@@ -78,3 +75,22 @@ jobs:
         build-args: |
           BUILDKIT_INLINE_CACHE=1
           DEBIAN_FRONTEND=noninteractive
+
+    - name: Update Kubernetes deployment
+      run: |
+        # Extract the image with sha tag for deployment
+        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -E ":main-[a-f0-9]{7}$" | head -1)
+        if [ -z "$IMAGE_TAG" ]; then
+          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+        fi
+        echo "Updating deployment with image: $IMAGE_TAG"
+        
+        # Update the deployment.yaml file with the new image
+        sed -i "s|image: ghcr.io/skorolevskiy/video-montage:.*|image: $IMAGE_TAG|g" k8s/deployment.yaml
+        
+        # Commit and push the updated deployment file
+        git config --local user.email "action@github.com"
+        git config --local user.name "GitHub Action"
+        git add k8s/deployment.yaml
+        git diff --staged --quiet || git commit -m "Update deployment image to $IMAGE_TAG [skip ci]"
+        git push
