@@ -6,17 +6,16 @@ ENV PYTHONUNBUFFERED=1
 ENV PIP_NO_CACHE_DIR=1
 ENV PIP_DISABLE_PIP_VERSION_CHECK=1
 
-# Set working directory early
+# Set working directory
 WORKDIR /app
 
-# Install system dependencies in a single layer with cleanup
+# Install only essential system dependencies, avoiding GUI packages
 RUN apt-get update && \
     apt-get install -y --no-install-recommends \
         ffmpeg \
-        gdown \
         && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
+    rm -rf /var/lib/apt/lists/* && \
+    pip3 install --no-cache-dir gdown
 
 # Copy and install Python dependencies
 COPY requirements.txt .
