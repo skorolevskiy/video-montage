@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body
 from fastapi.responses import FileResponse, JSONResponse
+from pydantic import BaseModel
 import os
 import tempfile
 import aiohttp
@@ -96,20 +97,23 @@ async def process_video(
         })
         processor.cleanup()
 
+class VideoMergeBody(BaseModel):
+    video_merge_request: VideoMergeRequest
+    music_url: str
+
 @app.post("/merge-videos", response_model=VideoMergeResponse)
 async def merge_videos(
     background_tasks: BackgroundTasks,
-    video_merge_request: VideoMergeRequest,
-    music_url: str
+    body: VideoMergeBody
 ):
     """Start video merge process"""
     try:
         # Validate request
-        if len(video_merge_request.video_urls) > MAX_VIDEOS:
+        if len(body.video_merge_request.video_urls) > MAX_VIDEOS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
 
         # Get file extension from URL
-        parsed_url = urllib.parse.urlparse(music_url)
+        parsed_url = urllib.parse.urlparse(body.music_url)
         file_ext = os.path.splitext(parsed_url.path)[1].lower()
         if not file_ext:
             file_ext = '.mp3'  # Default to mp3 if no extension in URL
@@ -123,7 +127,7 @@ async def merge_videos(
 
         # Download music file
         async with aiohttp.ClientSession() as session:
-            async with session.get(music_url) as response:
+            async with session.get(body.music_url) as response:
                 if response.status != 200:
                     raise HTTPException(status_code=400, detail="Could not download music file")
                 
@@ -160,7 +164,7 @@ async def merge_videos(
         background_tasks.add_task(
             process_video,
             video_id,
-            video_merge_request,
+            body.video_merge_request,
             music_path
         )
 
