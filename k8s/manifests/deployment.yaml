@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: video-montage
-        image: ghcr.io/skorolevskiy/video-montage:main-2315a9a
+        image: ghcr.io/skorolevskiy/video-montage:main-cfc92c1
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
