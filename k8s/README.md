@@ -4,8 +4,11 @@
 The deployment uses the Docker image built by GitHub Actions and published to GitHub Container Registry:
 - **Image**: `ghcr.io/skorolevskiy/video-montage:latest`
 - **Registry**: GitHub Container Registry (ghcr.io)
+- **Auto-updated**: CI pipeline automatically updates deployment with new image tags
 
 ## Quick Deploy
+
+### Manual Deployment
 ```bash
 # Deploy all resources
 kubectl apply -f k8s/
@@ -15,6 +18,32 @@ kubectl apply -f k8s/namespace.yaml
 kubectl apply -f k8s/deployment.yaml
 kubectl apply -f k8s/service.yaml
 ```
+
+### GitOps Deployment with ArgoCD (Recommended)
+```bash
+# Deploy ArgoCD project and application
+kubectl apply -f k8s/argocd-project.yaml
+kubectl apply -f k8s/argocd-application.yaml
+```
+
+See [ARGOCD.md](ARGOCD.md) for detailed ArgoCD setup and management instructions.
+
+## CI/CD Integration
+
+The GitHub Actions CI pipeline automatically:
+1. **Builds** new Docker images on every push to main
+2. **Tags** images with branch and commit SHA
+3. **Updates** `deployment.yaml` with the new image tag
+4. **Commits** the updated deployment back to the repository
+
+### Automatic Updates with ArgoCD
+When using ArgoCD:
+1. CI pipeline updates the deployment manifest
+2. ArgoCD detects the Git repository changes
+3. ArgoCD automatically syncs the new image to Kubernetes
+4. Zero-downtime deployment with automated rollout
+
+This creates a complete GitOps workflow where code changes automatically trigger deployments.
 
 ## Access the Application
 - **NodePort**: http://your-node-ip:30800
@@ -47,6 +76,19 @@ kubectl scale deployment video-montage --replicas=3 -n video-montage
 # Delete all resources
 kubectl delete -f k8s/
 ```
+
+## GitOps Deployment with ArgoCD
+
+For automated GitOps deployment, use ArgoCD instead of manual kubectl commands.
+
+### Quick ArgoCD Setup
+```bash
+# Deploy ArgoCD project and application
+kubectl apply -f k8s/argocd-project.yaml
+kubectl apply -f k8s/argocd-application.yaml
+```
+
+See [ARGOCD.md](ARGOCD.md) for detailed ArgoCD setup and management instructions.
 
 ## Configuration Notes
 - **Image**: Built from GitHub Actions and stored in GitHub Container Registry
