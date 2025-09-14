@@ -8,7 +8,7 @@ spec:
   source:
     repoURL: https://github.com/skorolevskiy/video-montage.git
     targetRevision: main
-    path: k8s
+    path: k8s/manifests
   destination:
     server: https://kubernetes.default.svc
     namespace: video-montage
