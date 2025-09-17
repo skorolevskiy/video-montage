@@ -1,63 +1,49 @@
-# Deploy Video Montage Application to Kubernetes
+# Kubernetes Manifests
 
-## Image Source
-The deployment uses the Docker image built by GitHub Actions and published to GitHub Container Registry:
-- **Image**: `ghcr.io/skorolevskiy/video-montage:latest`
-- **Registry**: GitHub Container Registry (ghcr.io)
-
-## Quick Deploy
-```bash
-# Deploy all resources
-kubectl apply -f k8s/
-
-# Or deploy step by step
-kubectl apply -f k8s/namespace.yaml
-kubectl apply -f k8s/deployment.yaml
-kubectl apply -f k8s/service.yaml
+## Structure
+```
+k8s/
+├── manifests/
+│   ├── namespace.yaml     # video-montage namespace
+│   ├── deployment.yaml    # App deployment
+│   └── service.yaml       # NodePort service (30800)
+├── argocd-project.yaml    # ArgoCD project
+└── argocd-application.yaml # ArgoCD app
 ```
 
-## Access the Application
-- **NodePort**: http://your-node-ip:30800
-- **API Documentation**: http://your-node-ip:30800/docs
-- **Health Check**: http://your-node-ip:30800/health
-
-## Check Deployment Status
+## Deploy
 ```bash
-# Check pods
-kubectl get pods -n video-montage
+# GitOps (recommended)
+kubectl apply -f argocd-project.yaml
+kubectl apply -f argocd-application.yaml
 
-# Check service
-kubectl get svc -n video-montage
+# Manual
+kubectl apply -f manifests/
+```
 
-# Check deployment
-kubectl get deployment -n video-montage
+## Access
+- **URL**: `http://node-ip:30800`
+- **Docs**: `http://node-ip:30800/docs`
+- **Health**: `http://node-ip:30800/health`
+- **Namespace**: `video-montage`
 
-# View logs
+## Image
+- **Registry**: GitHub Container Registry
+- **Image**: `ghcr.io/skorolevskiy/video-montage:main-*`
+- **Auto-updated**: CI pipeline updates deployment with new tags
+
+## Check Status
+```bash
+kubectl get all -n video-montage
 kubectl logs -l app=video-montage -n video-montage
 ```
 
-## Scale the Application
+## Scale
 ```bash
-# Scale to 3 replicas
 kubectl scale deployment video-montage --replicas=3 -n video-montage
 ```
 
 ## Cleanup
 ```bash
-# Delete all resources
-kubectl delete -f k8s/
+kubectl delete -f manifests/
 ```
-
-## Configuration Notes
-- **Image**: Built from GitHub Actions and stored in GitHub Container Registry
-- **Replicas**: 1 (can be scaled)
-- **NodePort**: 30800 (accessible on all cluster nodes)
-- **Namespace**: video-montage
-- **Health Checks**: Simplified liveness and readiness probes on /health endpoint
-- **No resource limits**: Allows flexible resource usage based on workload
-
-## Building and Pushing New Images
-To update the deployed image:
-1. Push changes to the repository
-2. Run the GitHub Actions workflow with "Push image to registry" enabled
-3. Restart the deployment: `kubectl rollout restart deployment video-montage -n video-montage`
