@@ -82,12 +82,19 @@ async def process_video(
     music_path: str
 ):
     """Background task for video processing"""
-    processor = VideoProcessor(TEMP_DIR)
+    # Используем отдельную директорию для каждой задачи
+    task_dir = os.path.join(TEMP_DIR, video_id)
+    if not os.path.exists(task_dir):
+        os.makedirs(task_dir, exist_ok=True)
+        logger.info(f"Created task directory: {task_dir}")
+
+    processor = VideoProcessor(task_dir)
     try:
         # Update status to processing
         video_tasks[video_id].update({
             "status": VideoStatus.PROCESSING,
-            "progress": 0.0
+            "progress": 0.0,
+            "task_dir": task_dir
         })
 
         # Process videos
@@ -121,6 +128,15 @@ async def process_video(
             "completed_at": datetime.now()
         })
         processor.cleanup()
+        
+        # Очищаем директорию задачи при ошибке
+        if "task_dir" in video_tasks[video_id]:
+            task_dir = video_tasks[video_id]["task_dir"]
+            try:
+                shutil.rmtree(task_dir, ignore_errors=True)
+                logger.info(f"Cleaned up task directory after error: {task_dir}")
+            except Exception as cleanup_error:
+                logger.error(f"Error cleaning up task directory: {str(cleanup_error)}")
 
 class VideoMergeSimpleRequest(BaseModel):
     video_files: List[str]
@@ -152,25 +168,42 @@ async def merge_videos(
 
         # Generate unique ID for this task
         video_id = str(uuid.uuid4())
-        music_path = os.path.join(TEMP_DIR, f"music_{video_id}{file_ext}")
+
+        # Создаем отдельную папку для задачи
+        task_dir = os.path.join(TEMP_DIR, video_id)
+        os.makedirs(task_dir, exist_ok=True)
+        logger.info(f"Created task directory: {task_dir}")
+
+        # Путь для сохранения музыки в папке задачи
+        music_path = os.path.join(task_dir, f"music{file_ext}")
 
         # Download music file
         async with aiohttp.ClientSession() as session:
             async with session.get(request.music_url) as response:
                 if response.status != 200:
+                    # Очищаем созданную директорию в случае ошибки
+                    shutil.rmtree(task_dir, ignore_errors=True)
                     raise HTTPException(status_code=400, detail="Could not download music file")
                 
                 content_length = response.content_length
                 if content_length and content_length > MAX_FILE_SIZE:
+                    # Очищаем созданную директорию в случае ошибки
+                    shutil.rmtree(task_dir, ignore_errors=True)
                     raise HTTPException(status_code=400, detail="Music file too large")
 
-                # Save music file
-                with open(music_path, "wb") as f:
-                    while True:
-                        chunk = await response.content.read(8192)
-                        if not chunk:
-                            break
-                        f.write(chunk)
+                try:
+                    # Save music file
+                    with open(music_path, "wb") as f:
+                        while True:
+                            chunk = await response.content.read(8192)
+                            if not chunk:
+                                break
+                            f.write(chunk)
+                except Exception as e:
+                    # Очищаем созданную директорию в случае ошибки
+                    shutil.rmtree(task_dir, ignore_errors=True)
+                    logger.error(f"Error saving music file: {str(e)}")
+                    raise HTTPException(status_code=500, detail="Failed to save music file")
 
         # Create VideoMergeRequest for processing
         video_merge_request = VideoMergeRequest(
@@ -266,8 +299,33 @@ async def create_subtitles(
     finally:
         processor.cleanup()
 
+@app.delete("/video/{video_id}")
+async def delete_video_task(video_id: str):
+    """Delete video task and clean up its resources"""
+    if video_id not in video_tasks:
+        raise HTTPException(status_code=404, detail="Video task not found")
+    
+    task = video_tasks[video_id]
+    
+    # Очищаем директорию задачи
+    if "task_dir" in task:
+        task_dir = task["task_dir"]
+        try:
+            shutil.rmtree(task_dir, ignore_errors=True)
+            logger.info(f"Cleaned up task directory: {task_dir}")
+        except Exception as e:
+            logger.error(f"Error cleaning up task directory: {str(e)}")
+    
+    # Удаляем задачу из словаря
+    video_tasks.pop(video_id)
+    return {"message": "Video task deleted"}
+
 @app.on_event("shutdown")
 def cleanup():
     """Clean up temporary directory on shutdown"""
     if os.path.exists(TEMP_DIR):
-        shutil.rmtree(TEMP_DIR)
+        try:
+            shutil.rmtree(TEMP_DIR)
+            logger.info("Cleaned up main temporary directory")
+        except Exception as e:
+            logger.error(f"Error cleaning up temporary directory: {str(e)}")
