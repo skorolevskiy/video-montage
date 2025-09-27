@@ -6,3 +6,7 @@ services:
     container_name: video-montage
     ports:
       - "8000:8000"
+    environment:
+      - PERSISTENT_DIR=/app/storage
+    volumes:
+      - ./storage:/app/storage

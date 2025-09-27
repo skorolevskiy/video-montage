@@ -1,5 +1,6 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request
 from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
 import tempfile
@@ -58,6 +59,12 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 MAX_VIDEOS = 20
 SUPPORTED_AUDIO_FORMATS = {'.mp3', '.wav', '.aac'}
 TEMP_DIR = tempfile.mkdtemp(prefix='video_processing_')
+# Persistent storage for final videos
+PERSISTENT_DIR = os.environ.get("PERSISTENT_DIR") or os.path.join(os.getcwd(), "storage")
+os.makedirs(PERSISTENT_DIR, exist_ok=True)
+
+# Serve persistent videos as static files
+app.mount("/media", StaticFiles(directory=PERSISTENT_DIR), name="media")
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -107,16 +114,33 @@ async def process_video(
             output_filename=video_merge_request.output_filename
         )
 
+        # Move final output to persistent storage with stable name
+        safe_name = os.path.basename(video_merge_request.output_filename) or "output.mp4"
+        final_name = f"{video_id}_{safe_name}"
+        persistent_path = os.path.join(PERSISTENT_DIR, final_name)
+        try:
+            shutil.move(output_file, persistent_path)
+        except Exception as move_err:
+            logger.error(f"Failed to move output to persistent storage: {move_err}")
+            raise
+
         # Update status to completed
         video_tasks[video_id].update({
             "status": VideoStatus.COMPLETED,
             "completed_at": datetime.now(),
             "progress": 100.0,
-            "download_url": f"/download/{video_id}"
+            # Permanent static URL
+            "download_url": f"/media/{final_name}"
         })
 
         # Store output file path
-        video_tasks[video_id]["output_file"] = output_file
+        video_tasks[video_id]["output_file"] = persistent_path
+
+        # Cleanup temporary working directory
+        try:
+            processor.cleanup()
+        except Exception as ce:
+            logger.warning(f"Cleanup warning for {video_id}: {ce}")
 
     except Exception as e:
         # Update status to failed
@@ -221,14 +245,9 @@ async def merge_videos(
             "progress": 0.0
         }
 
-        # Limit storage size
+        # Limit in-memory task history size (do not delete persisted files)
         while len(video_tasks) > MAX_STORAGE_ITEMS:
-            _, oldest_task = video_tasks.popitem(last=False)
-            if "output_file" in oldest_task:
-                try:
-                    os.remove(oldest_task["output_file"])
-                except:
-                    pass
+            video_tasks.popitem(last=False)
 
         # Start processing in background
         background_tasks.add_task(
@@ -256,21 +275,34 @@ async def merge_videos(
 @app.get("/download/{video_id}")
 async def download_video(video_id: str):
     """Download processed video"""
-    if video_id not in video_tasks:
-        raise HTTPException(status_code=404, detail="Video not found")
+    # First, try using in-memory task info if present
+    if video_id in video_tasks:
+        task = video_tasks[video_id]
+        if task["status"] != VideoStatus.COMPLETED:
+            raise HTTPException(status_code=400, detail="Video is not ready yet")
+        file_path = task.get("output_file")
+        if file_path and os.path.exists(file_path):
+            return FileResponse(
+                file_path,
+                media_type="video/mp4",
+                filename=os.path.basename(file_path)
+            )
 
-    task = video_tasks[video_id]
-    if task["status"] != VideoStatus.COMPLETED:
-        raise HTTPException(status_code=400, detail="Video is not ready yet")
+    # Fallback: search persistent storage by video_id prefix to survive restarts
+    try:
+        for name in os.listdir(PERSISTENT_DIR):
+            if name.startswith(f"{video_id}_"):
+                file_path = os.path.join(PERSISTENT_DIR, name)
+                if os.path.isfile(file_path):
+                    return FileResponse(
+                        file_path,
+                        media_type="video/mp4",
+                        filename=name
+                    )
+    except FileNotFoundError:
+        pass
 
-    if "output_file" not in task:
-        raise HTTPException(status_code=404, detail="Video file not found")
-
-    return FileResponse(
-        task["output_file"],
-        media_type="video/mp4",
-        filename=os.path.basename(task["output_file"])
-    )
+    raise HTTPException(status_code=404, detail="Video not found")
 
 @app.post("/create-subtitles")
 async def create_subtitles(

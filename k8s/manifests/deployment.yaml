@@ -26,6 +26,8 @@ spec:
         env:
         - name: GIT_COMMIT
           value: "{{ .Values.image.tag | default \"latest\" }}"
+        - name: PERSISTENT_DIR
+          value: "/app/storage"
         livenessProbe:
           httpGet:
             path: /health
@@ -38,4 +40,11 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 10
+        volumeMounts:
+        - name: storage
+          mountPath: /app/storage
       restartPolicy: Always
+      volumes:
+      - name: storage
+        persistentVolumeClaim:
+          claimName: video-montage-storage
