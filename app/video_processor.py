@@ -264,7 +264,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             merged_video_base = os.path.join(self.work_dir, "merged_base.mp4")
             cmd_concat = [
                 self.ffmpeg_path, '-f', 'concat', '-safe', '0', '-i', concat_file,
-                '-c', 'copy', merged_video_base, '-y'
+                '-c:v', 'copy', '-c:a', 'aac', '-strict', 'experimental', merged_video_base, '-y'
             ]
             print(f"DEBUG: Running FFmpeg command: {' '.join(cmd_concat)}")
             print(f"DEBUG: Concat file content:")
