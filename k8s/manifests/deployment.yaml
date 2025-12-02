@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
       - name: video-montage
-        image: ghcr.io/skorolevskiy/video-montage:main-f910b4d
+        image: ghcr.io/skorolevskiy/video-montage:main-c29372d
         imagePullPolicy: Always
         ports:
         - containerPort: 8000
@@ -40,11 +40,4 @@ spec:
             port: 8000
           initialDelaySeconds: 10
           periodSeconds: 10
-        volumeMounts:
-        - name: storage
-          mountPath: /app/storage
       restartPolicy: Always
-      volumes:
-      - name: storage
-        persistentVolumeClaim:
-          claimName: video-montage-storage
