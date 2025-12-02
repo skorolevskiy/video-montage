@@ -86,7 +86,7 @@ async def get_video_status(video_id: str):
 async def process_video(
     video_id: str,
     video_merge_request: VideoMergeRequest,
-    music_path: str
+    music_path: Optional[str] = None
 ):
     """Background task for video processing"""
     # Используем отдельную директорию для каждой задачи
@@ -164,7 +164,7 @@ async def process_video(
 
 class VideoMergeSimpleRequest(BaseModel):
     video_files: List[str]
-    music_url: str
+    music_url: Optional[str] = None
     karaoke_mode: bool = False
     subtitles_data: List[SubtitleItem] = []
     output_filename: str = "output.mp4"
@@ -181,15 +181,6 @@ async def merge_videos(
         if len(request.video_files) > MAX_VIDEOS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
 
-        # Get file extension from URL
-        parsed_url = urllib.parse.urlparse(request.music_url)
-        file_ext = os.path.splitext(parsed_url.path)[1].lower()
-        if not file_ext:
-            file_ext = '.mp3'  # Default to mp3 if no extension in URL
-        
-        if file_ext not in SUPPORTED_AUDIO_FORMATS:
-            raise HTTPException(status_code=400, detail="Unsupported audio format")
-
         # Generate unique ID for this task
         video_id = str(uuid.uuid4())
 
@@ -198,36 +189,48 @@ async def merge_videos(
         os.makedirs(task_dir, exist_ok=True)
         logger.info(f"Created task directory: {task_dir}")
 
-        # Путь для сохранения музыки в папке задачи
-        music_path = os.path.join(task_dir, f"music{file_ext}")
+        music_path = None
+        if request.music_url:
+            # Get file extension from URL
+            parsed_url = urllib.parse.urlparse(request.music_url)
+            file_ext = os.path.splitext(parsed_url.path)[1].lower()
+            if not file_ext:
+                file_ext = '.mp3'  # Default to mp3 if no extension in URL
+            
+            if file_ext not in SUPPORTED_AUDIO_FORMATS:
+                shutil.rmtree(task_dir, ignore_errors=True)
+                raise HTTPException(status_code=400, detail="Unsupported audio format")
 
-        # Download music file
-        async with aiohttp.ClientSession() as session:
-            async with session.get(request.music_url) as response:
-                if response.status != 200:
-                    # Очищаем созданную директорию в случае ошибки
-                    shutil.rmtree(task_dir, ignore_errors=True)
-                    raise HTTPException(status_code=400, detail="Could not download music file")
-                
-                content_length = response.content_length
-                if content_length and content_length > MAX_FILE_SIZE:
-                    # Очищаем созданную директорию в случае ошибки
-                    shutil.rmtree(task_dir, ignore_errors=True)
-                    raise HTTPException(status_code=400, detail="Music file too large")
+            # Путь для сохранения музыки в папке задачи
+            music_path = os.path.join(task_dir, f"music{file_ext}")
 
-                try:
-                    # Save music file
-                    with open(music_path, "wb") as f:
-                        while True:
-                            chunk = await response.content.read(8192)
-                            if not chunk:
-                                break
-                            f.write(chunk)
-                except Exception as e:
-                    # Очищаем созданную директорию в случае ошибки
-                    shutil.rmtree(task_dir, ignore_errors=True)
-                    logger.error(f"Error saving music file: {str(e)}")
-                    raise HTTPException(status_code=500, detail="Failed to save music file")
+            # Download music file
+            async with aiohttp.ClientSession() as session:
+                async with session.get(request.music_url) as response:
+                    if response.status != 200:
+                        # Очищаем созданную директорию в случае ошибки
+                        shutil.rmtree(task_dir, ignore_errors=True)
+                        raise HTTPException(status_code=400, detail="Could not download music file")
+                    
+                    content_length = response.content_length
+                    if content_length and content_length > MAX_FILE_SIZE:
+                        # Очищаем созданную директорию в случае ошибки
+                        shutil.rmtree(task_dir, ignore_errors=True)
+                        raise HTTPException(status_code=400, detail="Music file too large")
+
+                    try:
+                        # Save music file
+                        with open(music_path, "wb") as f:
+                            while True:
+                                chunk = await response.content.read(8192)
+                                if not chunk:
+                                    break
+                                f.write(chunk)
+                    except Exception as e:
+                        # Очищаем созданную директорию в случае ошибки
+                        shutil.rmtree(task_dir, ignore_errors=True)
+                        logger.error(f"Error saving music file: {str(e)}")
+                        raise HTTPException(status_code=500, detail="Failed to save music file")
 
         # Create VideoMergeRequest for processing
         video_merge_request = VideoMergeRequest(

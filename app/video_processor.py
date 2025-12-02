@@ -235,7 +235,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     async def merge_videos(
         self,
         video_urls: List[str],
-        music_path: str,
+        music_path: Optional[str] = None,
         subtitles_data: Optional[List[SubtitleItem]] = None,
         karaoke_mode: bool = False,
         subtitle_style: Optional[SubtitleStyle] = None,
@@ -330,33 +330,44 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             else:
                 print("DEBUG: No subtitles data provided")
 
-            # Get video duration for music loop
-            video_info = self.get_video_info(current_video)
-            video_duration = video_info['duration']
+            if music_path:
+                # Get video duration for music loop
+                video_info = self.get_video_info(current_video)
+                video_duration = video_info['duration']
 
-            # Prepare music
-            prepared_audio = os.path.join(self.work_dir, "prepared_audio.mp3")
-            cmd_audio = [
-                self.ffmpeg_path, '-stream_loop', '-1', '-i', music_path,
-                '-t', str(video_duration), '-acodec', 'libmp3lame',
-                '-ab', '128k', prepared_audio, '-y'
-            ]
-            result = subprocess.run(cmd_audio, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise HTTPException(status_code=500, detail=f"Error preparing audio: {result.stderr}")
-            
-            self.temp_files.append(prepared_audio)
+                # Prepare music
+                prepared_audio = os.path.join(self.work_dir, "prepared_audio.mp3")
+                cmd_audio = [
+                    self.ffmpeg_path, '-stream_loop', '-1', '-i', music_path,
+                    '-t', str(video_duration), '-acodec', 'libmp3lame',
+                    '-ab', '128k', prepared_audio, '-y'
+                ]
+                result = subprocess.run(cmd_audio, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise HTTPException(status_code=500, detail=f"Error preparing audio: {result.stderr}")
+                
+                self.temp_files.append(prepared_audio)
 
-            # Final merge with music
-            final_output = os.path.join(self.work_dir, output_filename)
-            cmd_final = [
-                self.ffmpeg_path, '-i', current_video, '-i', prepared_audio,
-                '-c:v', 'libx264', '-c:a', 'aac', '-strict', 'experimental',
-                '-shortest', final_output, '-y'
-            ]
-            result = subprocess.run(cmd_final, capture_output=True, text=True)
-            if result.returncode != 0:
-                raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
+                # Final merge with music
+                final_output = os.path.join(self.work_dir, output_filename)
+                cmd_final = [
+                    self.ffmpeg_path, '-i', current_video, '-i', prepared_audio,
+                    '-c:v', 'libx264', '-c:a', 'aac', '-strict', 'experimental',
+                    '-shortest', final_output, '-y'
+                ]
+                result = subprocess.run(cmd_final, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
+            else:
+                # No music, just copy current video to final output
+                final_output = os.path.join(self.work_dir, output_filename)
+                cmd_final = [
+                    self.ffmpeg_path, '-i', current_video,
+                    '-c', 'copy', final_output, '-y'
+                ]
+                result = subprocess.run(cmd_final, capture_output=True, text=True)
+                if result.returncode != 0:
+                    raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
 
             return final_output
 
