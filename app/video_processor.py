@@ -260,11 +260,11 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     f.write(f"file '{video}'\n")
             self.temp_files.append(concat_file)
 
-            # Merge videos without audio
-            merged_video_no_audio = os.path.join(self.work_dir, "merged_no_audio.mp4")
+            # Merge videos (preserving audio if present)
+            merged_video_base = os.path.join(self.work_dir, "merged_base.mp4")
             cmd_concat = [
                 self.ffmpeg_path, '-f', 'concat', '-safe', '0', '-i', concat_file,
-                '-c', 'copy', '-an', merged_video_no_audio, '-y'
+                '-c', 'copy', merged_video_base, '-y'
             ]
             print(f"DEBUG: Running FFmpeg command: {' '.join(cmd_concat)}")
             print(f"DEBUG: Concat file content:")
@@ -276,8 +276,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 print(f"DEBUG: FFmpeg stdout: {result.stdout}")
                 raise HTTPException(status_code=500, detail=f"Error merging videos: {result.stderr}")
             
-            self.temp_files.append(merged_video_no_audio)
-            current_video = merged_video_no_audio
+            self.temp_files.append(merged_video_base)
+            current_video = merged_video_base
 
             # Add subtitles if provided
             if subtitles_data:
@@ -334,6 +334,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 # Get video duration for music loop
                 video_info = self.get_video_info(current_video)
                 video_duration = video_info['duration']
+                has_original_audio = video_info.get('has_audio', False)
 
                 # Prepare music
                 prepared_audio = os.path.join(self.work_dir, "prepared_audio.mp3")
@@ -350,11 +351,15 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
                 # Final merge with music
                 final_output = os.path.join(self.work_dir, output_filename)
+                
+                # Use music as the only audio, replacing original audio if present
                 cmd_final = [
                     self.ffmpeg_path, '-i', current_video, '-i', prepared_audio,
+                    '-map', '0:v', '-map', '1:a',
                     '-c:v', 'libx264', '-c:a', 'aac', '-strict', 'experimental',
                     '-shortest', final_output, '-y'
                 ]
+                
                 result = subprocess.run(cmd_final, capture_output=True, text=True)
                 if result.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
