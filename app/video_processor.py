@@ -257,16 +257,23 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         subtitles_data: Optional[List[SubtitleItem]] = None,
         karaoke_mode: bool = False,
         subtitle_style: Optional[SubtitleStyle] = None,
-        output_filename: str = "merged_video.mp4"
+        output_filename: str = "merged_video.mp4",
+        progress_callback: Optional[callable] = None
     ) -> str:
         """Main function for merging videos with music and subtitles"""
         downloaded_videos = []
         try:
+            if progress_callback:
+                await progress_callback(5.0)
+
             # Download all videos
             for i, url in enumerate(video_urls):
                 video_filename = os.path.join(self.work_dir, f"video_{i+1}.mp4")
                 if downloaded := await self.download_video(url, video_filename):
                     downloaded_videos.append(downloaded)
+            
+            if progress_callback:
+                await progress_callback(20.0)
 
             if not downloaded_videos:
                 raise HTTPException(status_code=400, detail="No videos were downloaded successfully")
@@ -297,6 +304,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             self.temp_files.append(merged_video_base)
             current_video = merged_video_base
 
+            if progress_callback:
+                await progress_callback(40.0)
+
             # Add subtitles if provided
             if subtitles_data:
                 print(f"DEBUG: Adding subtitles, data: {subtitles_data}, karaoke_mode: {karaoke_mode}")
@@ -310,6 +320,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     subtitle_file = os.path.join(self.work_dir, "subtitles.srt")
                     self.create_srt_subtitles(subtitles_data, subtitle_file)
                 
+                if progress_callback:
+                    await progress_callback(50.0)
+
                 print(f"DEBUG: Created subtitle file: {subtitle_file}")
                 with open(subtitle_file, 'r', encoding='utf-8') as f:
                     print(f"DEBUG: Subtitle file content:\n{f.read()}")
@@ -345,6 +358,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     print(f"DEBUG: Successfully added subtitles to video")
                 else:
                     print(f"DEBUG: Failed to add subtitles: {result.stderr}")
+                
+                if progress_callback:
+                    await progress_callback(70.0)
             else:
                 print("DEBUG: No subtitles data provided")
 
@@ -366,6 +382,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     raise HTTPException(status_code=500, detail=f"Error preparing audio: {result.stderr}")
                 
                 self.temp_files.append(prepared_audio)
+                
+                if progress_callback:
+                    await progress_callback(80.0)
 
                 # Final merge with music
                 final_output = os.path.join(self.work_dir, output_filename)
@@ -391,6 +410,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 result = await self._run_command(cmd_final)
                 if result.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
+
+            if progress_callback:
+                await progress_callback(95.0)
 
             return final_output
 

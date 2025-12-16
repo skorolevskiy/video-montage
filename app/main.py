@@ -104,6 +104,10 @@ async def process_video(
             "task_dir": task_dir
         })
 
+        async def update_progress(progress: float):
+            if video_id in video_tasks:
+                video_tasks[video_id]["progress"] = progress
+
         # Process videos
         output_file = await processor.merge_videos(
             video_urls=[str(url) for url in video_merge_request.video_urls],
@@ -111,12 +115,13 @@ async def process_video(
             subtitles_data=video_merge_request.subtitles_data,
             karaoke_mode=video_merge_request.karaoke_mode,
             subtitle_style=video_merge_request.subtitle_style,
-            output_filename=video_merge_request.output_filename
+            output_filename=video_merge_request.output_filename,
+            progress_callback=update_progress
         )
 
         # Move final output to persistent storage with stable name
         safe_name = os.path.basename(video_merge_request.output_filename) or "output.mp4"
-        final_name = f"{video_id}_{safe_name}"
+        final_name = f"{safe_name}"
         persistent_path = os.path.join(PERSISTENT_DIR, final_name)
         try:
             shutil.move(output_file, persistent_path)
