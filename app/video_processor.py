@@ -1,6 +1,7 @@
 import os
 import json
 import subprocess
+import asyncio
 import tempfile
 import shutil
 import aiofiles
@@ -18,6 +19,23 @@ class VideoProcessor:
         # Find FFmpeg and FFprobe paths
         self.ffmpeg_path = self._find_ffmpeg()
         self.ffprobe_path = self._find_ffprobe()
+
+    async def _run_command(self, cmd: List[str]) -> subprocess.CompletedProcess:
+        """Runs command asynchronously"""
+        print(f"DEBUG: Running command: {' '.join(cmd)}")
+        process = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        stdout, stderr = await process.communicate()
+        
+        return subprocess.CompletedProcess(
+            args=cmd,
+            returncode=process.returncode,
+            stdout=stdout.decode() if stdout else '',
+            stderr=stderr.decode() if stderr else ''
+        )
         
     def _find_ffmpeg(self) -> str:
         """Find FFmpeg executable"""
@@ -119,14 +137,14 @@ class VideoProcessor:
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Error downloading video: {str(e)}")
 
-    def get_video_info(self, video_path: str) -> Dict[str, Any]:
+    async def get_video_info(self, video_path: str) -> Dict[str, Any]:
         """Gets video information using ffprobe"""
         try:
             cmd = [
                 self.ffprobe_path, '-v', 'quiet', '-print_format', 'json',
                 '-show_streams', '-show_format', video_path
             ]
-            result = subprocess.run(cmd, capture_output=True, text=True)
+            result = await self._run_command(cmd)
 
             if result.returncode == 0:
                 info = json.loads(result.stdout)
@@ -270,7 +288,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             print(f"DEBUG: Concat file content:")
             with open(concat_file, 'r') as f:
                 print(f.read())
-            result = subprocess.run(cmd_concat, capture_output=True, text=True)
+            result = await self._run_command(cmd_concat)
             if result.returncode != 0:
                 print(f"DEBUG: FFmpeg stderr: {result.stderr}")
                 print(f"DEBUG: FFmpeg stdout: {result.stdout}")
@@ -317,7 +335,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     ]
                 
                 print(f"DEBUG: Running subtitle command: {' '.join(cmd_sub)}")
-                result = subprocess.run(cmd_sub, capture_output=True, text=True)
+                result = await self._run_command(cmd_sub)
                 print(f"DEBUG: Subtitle command result: returncode={result.returncode}")
                 if result.stderr:
                     print(f"DEBUG: Subtitle stderr: {result.stderr}")
@@ -332,7 +350,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             if music_path:
                 # Get video duration for music loop
-                video_info = self.get_video_info(current_video)
+                video_info = await self.get_video_info(current_video)
                 video_duration = video_info['duration']
                 has_original_audio = video_info.get('has_audio', False)
 
@@ -343,7 +361,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     '-t', str(video_duration), '-acodec', 'libmp3lame',
                     '-ab', '128k', prepared_audio, '-y'
                 ]
-                result = subprocess.run(cmd_audio, capture_output=True, text=True)
+                result = await self._run_command(cmd_audio)
                 if result.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"Error preparing audio: {result.stderr}")
                 
@@ -360,7 +378,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     '-shortest', final_output, '-y'
                 ]
                 
-                result = subprocess.run(cmd_final, capture_output=True, text=True)
+                result = await self._run_command(cmd_final)
                 if result.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
             else:
@@ -370,7 +388,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                     self.ffmpeg_path, '-i', current_video,
                     '-c', 'copy', final_output, '-y'
                 ]
-                result = subprocess.run(cmd_final, capture_output=True, text=True)
+                result = await self._run_command(cmd_final)
                 if result.returncode != 0:
                     raise HTTPException(status_code=500, detail=f"Error creating final video: {result.stderr}")
 
