@@ -218,9 +218,9 @@ async def process_circle_video_task(
 
         output_file = await processor.process_circle_video(
             background_video_url=str(request.video_background_url),
-            overlay_video_url=str(request.video_overlay_url),
+            circle_video_url=str(request.video_circle_url),
             background_volume=request.background_volume,
-            overlay_volume=request.overlay_volume,
+            circle_volume=request.circle_volume,
             output_filename=request.output_filename,
             progress_callback=update_progress
         )

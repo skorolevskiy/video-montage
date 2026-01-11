@@ -422,9 +422,9 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     async def process_circle_video(
         self,
         background_video_url: str,
-        overlay_video_url: str,
+        circle_video_url: str,
         background_volume: float = 1.0,
-        overlay_volume: float = 1.0,
+        circle_volume: float = 1.0,
         output_filename: str = "circle_video.mp4",
         progress_callback: Optional[callable] = None
     ) -> str:
@@ -435,7 +435,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
             # 1. Download videos
             bg_video_path = os.path.join(self.work_dir, "background.mp4")
-            ov_video_path = os.path.join(self.work_dir, "overlay.mp4")
+            circle_video_path = os.path.join(self.work_dir, "circle.mp4")
             
             if not await self.download_video(background_video_url, bg_video_path):
                  raise HTTPException(status_code=400, detail="Failed to download background video")
@@ -443,8 +443,8 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if progress_callback:
                 await progress_callback(15.0)
 
-            if not await self.download_video(overlay_video_url, ov_video_path):
-                 raise HTTPException(status_code=400, detail="Failed to download overlay video")
+            if not await self.download_video(circle_video_url, circle_video_path):
+                 raise HTTPException(status_code=400, detail="Failed to download circle video")
 
             if progress_callback:
                 await progress_callback(30.0)
@@ -453,24 +453,24 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             output_path = os.path.join(self.work_dir, output_filename)
             
             # Filter complex explanation:
-            # [1:v][0:v]scale2ref=w=iw*0.6:h=ow/a[over][bg] -> Scale overlay to 60% of bg width
+            # [1:v][0:v]scale2ref=w=iw*0.6:h=iw*0.6[over][bg] -> Scale overlay to 60% of bg width, force square (1:1)
             # [over]format=yuva420p,geq=...[circular] -> Create circular mask
             # [bg][circular]overlay=x=W-w-20:y=H-h-20[v] -> Overlay at bottom right
             # Audio mixing
             
             filter_complex = (
-                f"[1:v][0:v]scale2ref=w=iw*0.6:h=ow/a[over][bg];"
+                f"[1:v][0:v]scale2ref=w=iw*0.6:h=iw*0.6[over][bg];"
                 f"[over]format=yuva420p,geq=lum='p(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'[circular];"
                 f"[bg][circular]overlay=x=W-w-20:y=H-h-20[v];"
                 f"[0:a]volume={background_volume}[a0];"
-                f"[1:a]volume={overlay_volume}[a1];"
+                f"[1:a]volume={circle_volume}[a1];"
                 f"[a0][a1]amix=inputs=2:duration=first[a]"
             )
 
             cmd = [
                 self.ffmpeg_path,
                 '-i', bg_video_path,
-                '-i', ov_video_path,
+                '-i', circle_video_path,
                 '-filter_complex', filter_complex,
                 '-map', '[v]',
                 '-map', '[a]',
