@@ -449,6 +449,10 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if progress_callback:
                 await progress_callback(30.0)
 
+            # Get info for circle video to determine duration
+            circle_info = await self.get_video_info(circle_video_path)
+            duration = circle_info.get('duration', 0)
+
             # 2. Construct FFmpeg command
             output_path = os.path.join(self.work_dir, output_filename)
             
@@ -477,6 +481,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-c:v', 'libx264',
                 '-preset', 'fast',
                 '-c:a', 'aac',
+                '-t', str(duration),
                 output_path,
                 '-y'
             ]

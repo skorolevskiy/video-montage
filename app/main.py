@@ -216,17 +216,20 @@ async def process_circle_video_task(
             if video_id in video_tasks:
                 video_tasks[video_id]["progress"] = progress
 
+        # Default internal filename
+        output_filename = "circle_video.mp4"
+
         output_file = await processor.process_circle_video(
             background_video_url=str(request.video_background_url),
             circle_video_url=str(request.video_circle_url),
             background_volume=request.background_volume,
             circle_volume=request.circle_volume,
-            output_filename=request.output_filename,
+            output_filename=output_filename,
             progress_callback=update_progress
         )
 
         # Persistence logic
-        safe_name = os.path.basename(request.output_filename) or "circle_video.mp4"
+        safe_name = "circle_connected.mp4"
         final_name = f"circle_{video_id}_{safe_name}" 
         persistent_path = os.path.join(PERSISTENT_DIR, final_name)
         

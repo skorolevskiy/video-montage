@@ -34,7 +34,6 @@ class VideoCircleRequest(BaseModel):
     video_circle_url: str
     background_volume: float = 1.0
     circle_volume: float = 1.0
-    output_filename: str = "circle_video.mp4"
 
 class VideoInfoResponse(BaseModel):
     duration: float
