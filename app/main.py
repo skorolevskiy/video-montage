@@ -18,7 +18,7 @@ from collections import OrderedDict
 from models import (
     VideoMergeRequest, VideoInfoResponse, HealthResponse, 
     SubtitleStyle, SubtitleItem, VideoStatus, 
-    VideoStatusResponse, VideoMergeResponse
+    VideoStatusResponse, VideoMergeResponse, VideoCircleRequest
 )
 from video_processor import VideoProcessor
 
@@ -65,6 +65,33 @@ os.makedirs(PERSISTENT_DIR, exist_ok=True)
 
 # Serve persistent videos as static files
 app.mount("/media", StaticFiles(directory=PERSISTENT_DIR), name="media")
+
+@app.post("/video-circle", response_model=VideoStatusResponse)
+async def create_connected_video(
+    background_tasks: BackgroundTasks,
+    request: VideoCircleRequest = Body(...)
+):
+    """
+    Creates a new video request with circle overlay (video-in-circle)
+    """
+    video_id = str(uuid.uuid4())
+    
+    # Store initial status
+    video_tasks[video_id] = {
+        "video_id": video_id,
+        "status": VideoStatus.PROCESSING,
+        "created_at": datetime.now(),
+        "progress": 0.0
+    }
+    
+    # Limit in-memory task history size
+    while len(video_tasks) > MAX_STORAGE_ITEMS:
+        video_tasks.popitem(last=False)
+        
+    # Start processing
+    background_tasks.add_task(process_circle_video_task, video_id, request)
+    
+    return VideoStatusResponse(**video_tasks[video_id])
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
@@ -166,6 +193,82 @@ async def process_video(
                 logger.info(f"Cleaned up task directory after error: {task_dir}")
             except Exception as cleanup_error:
                 logger.error(f"Error cleaning up task directory: {str(cleanup_error)}")
+
+async def process_circle_video_task(
+    video_id: str,
+    request: VideoCircleRequest
+):
+    """Background task for circle video processing"""
+    task_dir = os.path.join(TEMP_DIR, video_id)
+    if not os.path.exists(task_dir):
+        os.makedirs(task_dir, exist_ok=True)
+        logger.info(f"Created task directory for circle video: {task_dir}")
+
+    processor = VideoProcessor(task_dir)
+    try:
+        video_tasks[video_id].update({
+            "status": VideoStatus.PROCESSING,
+            "progress": 0.0,
+            "task_dir": task_dir
+        })
+
+        async def update_progress(progress: float):
+            if video_id in video_tasks:
+                video_tasks[video_id]["progress"] = progress
+
+        output_file = await processor.process_circle_video(
+            background_video_url=str(request.video_background_url),
+            overlay_video_url=str(request.video_overlay_url),
+            background_volume=request.background_volume,
+            overlay_volume=request.overlay_volume,
+            output_filename=request.output_filename,
+            progress_callback=update_progress
+        )
+
+        # Persistence logic
+        safe_name = os.path.basename(request.output_filename) or "circle_video.mp4"
+        final_name = f"circle_{video_id}_{safe_name}" 
+        persistent_path = os.path.join(PERSISTENT_DIR, final_name)
+        
+        try:
+            shutil.move(output_file, persistent_path)
+            logger.info(f"Moved output to: {persistent_path}")
+        except Exception as move_err:
+            logger.error(f"Move failed: {move_err}, trying copy")
+            shutil.copy2(output_file, persistent_path)
+
+        video_tasks[video_id].update({
+            "status": VideoStatus.COMPLETED,
+            "completed_at": datetime.now(),
+            "progress": 100.0,
+            "download_url": f"/media/{final_name}",
+            "output_file": persistent_path
+        })
+        
+        try:
+            processor.cleanup()
+        except Exception as ce:
+            logger.warning(f"Cleanup warning for {video_id}: {ce}")
+
+    except Exception as e:
+        logger.error(f"Error in process_circle_video_task for {video_id}: {str(e)}")
+        logger.error(traceback.format_exc())
+        video_tasks[video_id].update({
+            "status": VideoStatus.FAILED,
+            "error_message": str(e),
+            "completed_at": datetime.now()
+        })
+        # Clean up on failure
+        if "task_dir" in video_tasks[video_id]:
+            try:
+                shutil.rmtree(video_tasks[video_id]["task_dir"], ignore_errors=True)
+            except:
+                pass
+        try:
+            processor.cleanup()
+        except:
+            pass
+
 
 class VideoMergeSimpleRequest(BaseModel):
     video_files: List[str]

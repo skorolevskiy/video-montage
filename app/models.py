@@ -29,6 +29,13 @@ class VideoMergeRequest(BaseModel):
     subtitles_data: Optional[List[SubtitleItem]] = None
     subtitle_style: Optional[SubtitleStyle] = None
 
+class VideoCircleRequest(BaseModel):
+    video_background_url: str
+    video_overlay_url: str
+    background_volume: float = 1.0
+    overlay_volume: float = 1.0
+    output_filename: str = "circle_video.mp4"
+
 class VideoInfoResponse(BaseModel):
     duration: float
     width: int
