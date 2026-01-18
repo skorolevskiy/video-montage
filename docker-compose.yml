@@ -15,6 +15,7 @@ services:
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_BUCKET_NAME=videos
       - MINIO_SECURE=False
+      - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
     volumes:
       - ./app:/app
       - ./storage:/app/storage
@@ -36,6 +37,7 @@ services:
       - MINIO_SECRET_KEY=minioadmin
       - MINIO_BUCKET_NAME=videos
       - MINIO_SECURE=False
+      - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
     volumes:
       - ./app:/app
       - ./storage:/app/storage

@@ -9,6 +9,7 @@ class StorageManager:
         self.secret_key = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
         self.bucket_name = os.environ.get("MINIO_BUCKET_NAME", "videos")
         self.secure = os.environ.get("MINIO_SECURE", "False").lower() == "true"
+        self.external_url = os.environ.get("MINIO_EXTERNAL_URL")
 
         self.client = Minio(
             self.endpoint,
@@ -57,12 +58,23 @@ class StorageManager:
     def get_presigned_url(self, object_name: str, bucket_name: str = None, expires=timedelta(hours=1)):
         target_bucket = bucket_name or self.bucket_name
         try:
-            return self.client.get_presigned_url(
+            url = self.client.get_presigned_url(
                 "GET",
                 target_bucket,
                 object_name,
                 expires=expires
             )
+            
+            if self.external_url and url:
+                # Replace internal endpoint with external URL
+                # Handle both http and https for the internal part just in case
+                internal_base = f"http://{self.endpoint}"
+                if self.secure:
+                    internal_base = f"https://{self.endpoint}"
+                
+                return url.replace(internal_base, self.external_url)
+            
+            return url
         except Exception as e:
             print(f"Error getting presigned url: {e}")
             return None
