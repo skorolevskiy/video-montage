@@ -250,10 +250,9 @@ async def delete_video_task(video_id: str):
 async def upload_file(file: UploadFile = File(...)):
     """Upload a file to the uploads bucket"""
     storage = StorageManager()
-    file_ext = os.path.splitext(file.filename)[1]
-    # Keep original filename but prepend uuid to avoid collisions? 
-    # Or just use uuid? Let's use uuid for uniqueness
-    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    
+    # Use original filename
+    filename = file.filename
     
     try:
         # Get file size
@@ -264,7 +263,7 @@ async def upload_file(file: UploadFile = File(...)):
         storage.upload_stream(
             file.file,
             file_size,
-            unique_filename,
+            filename,
             content_type=file.content_type,
             bucket_name=storage.uploads_bucket
         )
@@ -273,10 +272,11 @@ async def upload_file(file: UploadFile = File(...)):
         # Assuming the API is accessed via /api/v1 prefix or similar, 
         # but here we'll just return relative path or rely on client knowing the domain
         # Or construct full URL if we knew the host. Relative is safer for proxying.
-        url = f"/uploads/{unique_filename}"
+        base_url = os.environ.get("APP_BASE_URL", "")
+        url = f"{base_url}/uploads/{filename}"
         
         return {
-            "filename": unique_filename,
+            "filename": filename,
             "original_filename": file.filename,
             "url": url,
             "size": file_size
@@ -290,6 +290,10 @@ async def list_uploads():
     """List all files in the uploads bucket"""
     storage = StorageManager()
     files = storage.list_files(bucket_name=storage.uploads_bucket)
+    
+    # Get base URL from environment or default to relative
+    base_url = os.environ.get("APP_BASE_URL", "")
+    
     # Add API URL
     result = []
     for f in files:
@@ -297,7 +301,7 @@ async def list_uploads():
             "object_name": f["object_name"],
             "size": f["size"],
             "last_modified": f["last_modified"],
-            "url": f"/uploads/{f['object_name']}"
+            "url": f"{base_url}/uploads/{f['object_name']}"
         }
         result.append(f_dict)
     return result

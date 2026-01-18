@@ -16,6 +16,7 @@ services:
       - MINIO_BUCKET_NAME=videos
       - MINIO_SECURE=False
       - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
+      - APP_BASE_URL=https://uniq.powercodeai.space
     volumes:
       - ./app:/app
       - ./storage:/app/storage
