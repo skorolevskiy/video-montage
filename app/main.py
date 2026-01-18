@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request, UploadFile, File
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
@@ -245,6 +245,56 @@ async def delete_video_task(video_id: str):
     redis_client.delete(key)
     # Note: We probably should delete from MinIO too, but keeping it simple for now
     return {"message": "Video task deleted"}
+
+@app.post("/upload")
+async def upload_file(file: UploadFile = File(...)):
+    """Upload a file to the uploads bucket"""
+    storage = StorageManager()
+    file_ext = os.path.splitext(file.filename)[1]
+    # Keep original filename but prepend uuid to avoid collisions? 
+    # Or just use uuid? Let's use uuid for uniqueness
+    unique_filename = f"{uuid.uuid4()}{file_ext}"
+    
+    try:
+        # Get file size
+        file.file.seek(0, 2)
+        file_size = file.file.tell()
+        file.file.seek(0)
+        
+        storage.upload_stream(
+            file.file,
+            file_size,
+            unique_filename,
+            content_type=file.content_type,
+            bucket_name=storage.uploads_bucket
+        )
+        
+        url = storage.get_presigned_url(unique_filename, bucket_name=storage.uploads_bucket)
+        
+        return {
+            "filename": unique_filename,
+            "original_filename": file.filename,
+            "url": url,
+            "size": file_size
+        }
+    except Exception as e:
+        logger.error(f"Upload failed: {e}")
+        raise HTTPException(status_code=500, detail="File upload failed")
+
+@app.get("/uploads")
+async def list_uploads():
+    """List all files in the uploads bucket"""
+    storage = StorageManager()
+    return storage.list_files(bucket_name=storage.uploads_bucket)
+
+@app.get("/uploads/{filename}")
+async def get_upload_link(filename: str):
+    """Get download link for an uploaded file"""
+    storage = StorageManager()
+    url = storage.get_presigned_url(filename, bucket_name=storage.uploads_bucket)
+    if not url:
+        raise HTTPException(status_code=404, detail="File not found")
+    return {"url": url}
 
 @app.on_event("shutdown")
 def cleanup():
