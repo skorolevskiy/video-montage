@@ -1,96 +1,96 @@
-name: Build
+# name: Build
 
-on:
-  push:
-    branches: [ main ]
-  workflow_dispatch:
+# on:
+#   push:
+#     branches: [ main ]
+#   workflow_dispatch:
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
+# env:
+#   REGISTRY: ghcr.io
+#   IMAGE_NAME: ${{ github.repository }}
 
-jobs:
-  build:
-    runs-on: ubuntu-latest
-    timeout-minutes: 60
-    permissions:
-      contents: write
-      packages: write
+# jobs:
+#   build:
+#     runs-on: ubuntu-latest
+#     timeout-minutes: 60
+#     permissions:
+#       contents: write
+#       packages: write
 
-    steps:
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        token: ${{ secrets.GITHUB_TOKEN }}
+#     steps:
+#     - name: Checkout repository
+#       uses: actions/checkout@v4
+#       with:
+#         token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Set up QEMU for multi-platform builds
-      uses: docker/setup-qemu-action@v3
-      with:
-        platforms: arm64
+#     - name: Set up QEMU for multi-platform builds
+#       uses: docker/setup-qemu-action@v3
+#       with:
+#         platforms: arm64
 
-    - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
-      with:
-        driver-opts: |
-          network=host
+#     - name: Set up Docker Buildx
+#       uses: docker/setup-buildx-action@v3
+#       with:
+#         driver-opts: |
+#           network=host
 
-    - name: Extract metadata
-      id: meta
-      uses: docker/metadata-action@v5
-      with:
-        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
-        tags: |
-          type=ref,event=branch
-          type=ref,event=pr
-          type=sha,prefix={{branch}}-
-          type=sha,format=short
-          type=raw,value={{date 'YYYYMMDD-HHmmss'}}
-          type=raw,value=latest,enable={{is_default_branch}}
-        labels: |
-          org.opencontainers.image.title=${{ github.repository }}
-          org.opencontainers.image.description=Video montage application
-          org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
-          org.opencontainers.image.revision=${{ github.sha }}
+#     - name: Extract metadata
+#       id: meta
+#       uses: docker/metadata-action@v5
+#       with:
+#         images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+#         tags: |
+#           type=ref,event=branch
+#           type=ref,event=pr
+#           type=sha,prefix={{branch}}-
+#           type=sha,format=short
+#           type=raw,value={{date 'YYYYMMDD-HHmmss'}}
+#           type=raw,value=latest,enable={{is_default_branch}}
+#         labels: |
+#           org.opencontainers.image.title=${{ github.repository }}
+#           org.opencontainers.image.description=Video montage application
+#           org.opencontainers.image.url=${{ github.server_url }}/${{ github.repository }}
+#           org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+#           org.opencontainers.image.revision=${{ github.sha }}
 
-    - name: Log in to Container Registry
-      uses: docker/login-action@v3
-      with:
-        registry: ${{ env.REGISTRY }}
-        username: ${{ github.actor }}
-        password: ${{ secrets.GITHUB_TOKEN }}
+#     - name: Log in to Container Registry
+#       uses: docker/login-action@v3
+#       with:
+#         registry: ${{ env.REGISTRY }}
+#         username: ${{ github.actor }}
+#         password: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Build Docker image
-      uses: docker/build-push-action@v5
-      timeout-minutes: 45
-      with:
-        context: .
-        file: ./Dockerfile
-        platforms: linux/arm64
-        push: true
-        tags: ${{ steps.meta.outputs.tags }}
-        labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
-        build-args: |
-          BUILDKIT_INLINE_CACHE=1
-          DEBIAN_FRONTEND=noninteractive
+#     - name: Build Docker image
+#       uses: docker/build-push-action@v5
+#       timeout-minutes: 45
+#       with:
+#         context: .
+#         file: ./Dockerfile
+#         platforms: linux/arm64
+#         push: true
+#         tags: ${{ steps.meta.outputs.tags }}
+#         labels: ${{ steps.meta.outputs.labels }}
+#         cache-from: type=gha
+#         cache-to: type=gha,mode=max
+#         build-args: |
+#           BUILDKIT_INLINE_CACHE=1
+#           DEBIAN_FRONTEND=noninteractive
 
-    - name: Update Kubernetes deployment
-      run: |
-        # Extract the image with sha tag for deployment
-        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -E ":main-[a-f0-9]{7}$" | head -1)
-        if [ -z "$IMAGE_TAG" ]; then
-          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-        fi
-        echo "Updating deployment with image: $IMAGE_TAG"
+    # - name: Update Kubernetes deployment
+    #   run: |
+    #     # Extract the image with sha tag for deployment
+    #     IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -E ":main-[a-f0-9]{7}$" | head -1)
+    #     if [ -z "$IMAGE_TAG" ]; then
+    #       IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+    #     fi
+    #     echo "Updating deployment with image: $IMAGE_TAG"
         
-        # Update the deployment.yaml file with the new image
-        sed -i "s|image: ghcr.io/skorolevskiy/video-montage:.*|image: $IMAGE_TAG|g" k8s/manifests/deployment.yaml
+    #     # Update the deployment.yaml file with the new image
+    #     sed -i "s|image: ghcr.io/skorolevskiy/video-montage:.*|image: $IMAGE_TAG|g" k8s/manifests/deployment.yaml
         
-        # Commit and push the updated deployment file
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add k8s/manifests/deployment.yaml
-        git diff --staged --quiet || git commit -m "Update deployment image to $IMAGE_TAG [skip ci]"
-        git push
+    #     # Commit and push the updated deployment file
+    #     git config --local user.email "action@github.com"
+    #     git config --local user.name "GitHub Action"
+    #     git add k8s/manifests/deployment.yaml
+    #     git diff --staged --quiet || git commit -m "Update deployment image to $IMAGE_TAG [skip ci]"
+    #     git push
