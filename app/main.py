@@ -59,7 +59,7 @@ async def log_requests(request: Request, call_next):
         )
 
 # Configuration
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
+MAX_FILE_SIZE = 500 * 1024 * 1024  # 500MB
 MAX_VIDEOS = 20
 SUPPORTED_AUDIO_FORMATS = {'.mp3', '.wav', '.aac'}
 TEMP_DIR = tempfile.mkdtemp(prefix='video_processing_')
