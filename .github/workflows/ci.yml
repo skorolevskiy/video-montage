@@ -76,21 +76,21 @@ jobs:
           BUILDKIT_INLINE_CACHE=1
           DEBIAN_FRONTEND=noninteractive
 
-    - name: Update Kubernetes deployment
-      run: |
-        # Extract the image with sha tag for deployment
-        IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -E ":main-[a-f0-9]{7}$" | head -1)
-        if [ -z "$IMAGE_TAG" ]; then
-          IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
-        fi
-        echo "Updating deployment with image: $IMAGE_TAG"
+    # - name: Update Kubernetes deployment
+    #   run: |
+    #     # Extract the image with sha tag for deployment
+    #     IMAGE_TAG=$(echo "${{ steps.meta.outputs.tags }}" | grep -E ":main-[a-f0-9]{7}$" | head -1)
+    #     if [ -z "$IMAGE_TAG" ]; then
+    #       IMAGE_TAG="${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest"
+    #     fi
+    #     echo "Updating deployment with image: $IMAGE_TAG"
         
-        # Update the deployment.yaml file with the new image
-        sed -i "s|image: ghcr.io/skorolevskiy/video-montage:.*|image: $IMAGE_TAG|g" k8s/manifests/deployment.yaml
+    #     # Update the deployment.yaml file with the new image
+    #     sed -i "s|image: ghcr.io/skorolevskiy/video-montage:.*|image: $IMAGE_TAG|g" k8s/manifests/deployment.yaml
         
-        # Commit and push the updated deployment file
-        git config --local user.email "action@github.com"
-        git config --local user.name "GitHub Action"
-        git add k8s/manifests/deployment.yaml
-        git diff --staged --quiet || git commit -m "Update deployment image to $IMAGE_TAG [skip ci]"
-        git push
+    #     # Commit and push the updated deployment file
+    #     git config --local user.email "action@github.com"
+    #     git config --local user.name "GitHub Action"
+    #     git add k8s/manifests/deployment.yaml
+    #     git diff --staged --quiet || git commit -m "Update deployment image to $IMAGE_TAG [skip ci]"
+    #     git push
