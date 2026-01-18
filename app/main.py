@@ -289,21 +289,50 @@ async def upload_file(file: UploadFile = File(...)):
 async def list_uploads():
     """List all files in the uploads bucket"""
     storage = StorageManager()
-    return storage.list_files(bucket_name=storage.uploads_bucket)
+    files = storage.list_files(bucket_name=storage.uploads_bucket)
+    # Add API URL
+    result = []
+    for f in files:
+        f_dict = {
+            "object_name": f["object_name"],
+            "size": f["size"],
+            "last_modified": f["last_modified"],
+            "url": f"/uploads/{f['object_name']}"
+        }
+        result.append(f_dict)
+    return result
 
 @app.get("/uploads/{filename}")
 async def get_upload_file(filename: str):
     """Get uploaded file content"""
     storage = StorageManager()
     try:
-        # Get file stream from MinIO
-        file_response = storage.get_file_content(filename, bucket_name=storage.uploads_bucket)
+        # Get internal presigned URL
+        url = storage.get_presigned_url(
+            filename, 
+            bucket_name=storage.uploads_bucket,
+            internal=True
+        )
         
+        if not url:
+             raise HTTPException(status_code=404, detail="File not found")
+
+        # Stream file from MinIO to client via aiohttp (non-blocking)
+        async def stream_file():
+            async with aiohttp.ClientSession() as session:
+                async with session.get(url) as response:
+                    if response.status != 200:
+                        yield b""
+                        return
+                    async for chunk in response.content.iter_chunked(32 * 1024):
+                         yield chunk
+
         return StreamingResponse(
-            file_response, 
+            stream_file(), 
             media_type="application/octet-stream",
             headers={"Content-Disposition": f"attachment; filename={filename}"}
         )
+
     except Exception as e:
         logger.error(f"Error serving file {filename}: {e}")
         raise HTTPException(status_code=404, detail="File not found")

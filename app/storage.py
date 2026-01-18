@@ -64,7 +64,7 @@ class StorageManager:
             print(f"Error getting file content: {e}")
             raise e
 
-    def get_presigned_url(self, object_name: str, bucket_name: str = None, expires=timedelta(hours=1)):
+    def get_presigned_url(self, object_name: str, bucket_name: str = None, expires=timedelta(hours=1), internal: bool = False):
         target_bucket = bucket_name or self.bucket_name
         try:
             url = self.client.get_presigned_url(
@@ -74,7 +74,7 @@ class StorageManager:
                 expires=expires
             )
             
-            if self.external_url and url:
+            if not internal and self.external_url and url:
                 # Replace internal endpoint with external URL
                 # Handle both http and https for the internal part just in case
                 internal_base = f"http://{self.endpoint}"
