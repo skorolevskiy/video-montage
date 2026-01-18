@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request, UploadFile, File
-from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
@@ -269,7 +269,11 @@ async def upload_file(file: UploadFile = File(...)):
             bucket_name=storage.uploads_bucket
         )
         
-        url = storage.get_presigned_url(unique_filename, bucket_name=storage.uploads_bucket)
+        # Return direct API URL instead of presigned URL
+        # Assuming the API is accessed via /api/v1 prefix or similar, 
+        # but here we'll just return relative path or rely on client knowing the domain
+        # Or construct full URL if we knew the host. Relative is safer for proxying.
+        url = f"/uploads/{unique_filename}"
         
         return {
             "filename": unique_filename,
@@ -288,13 +292,21 @@ async def list_uploads():
     return storage.list_files(bucket_name=storage.uploads_bucket)
 
 @app.get("/uploads/{filename}")
-async def get_upload_link(filename: str):
-    """Get download link for an uploaded file"""
+async def get_upload_file(filename: str):
+    """Get uploaded file content"""
     storage = StorageManager()
-    url = storage.get_presigned_url(filename, bucket_name=storage.uploads_bucket)
-    if not url:
+    try:
+        # Get file stream from MinIO
+        file_response = storage.get_file_content(filename, bucket_name=storage.uploads_bucket)
+        
+        return StreamingResponse(
+            file_response, 
+            media_type="application/octet-stream",
+            headers={"Content-Disposition": f"attachment; filename={filename}"}
+        )
+    except Exception as e:
+        logger.error(f"Error serving file {filename}: {e}")
         raise HTTPException(status_code=404, detail="File not found")
-    return {"url": url}
 
 @app.on_event("shutdown")
 def cleanup():

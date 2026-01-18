@@ -55,6 +55,15 @@ class StorageManager:
             print(f"Error uploading stream: {e}")
             raise e
 
+    def get_file_content(self, object_name: str, bucket_name: str = None):
+        target_bucket = bucket_name or self.bucket_name
+        try:
+            response = self.client.get_object(target_bucket, object_name)
+            return response
+        except Exception as e:
+            print(f"Error getting file content: {e}")
+            raise e
+
     def get_presigned_url(self, object_name: str, bucket_name: str = None, expires=timedelta(hours=1)):
         target_bucket = bucket_name or self.bucket_name
         try:
