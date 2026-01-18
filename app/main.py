@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 import os
@@ -11,6 +11,8 @@ import traceback
 from typing import List, Optional, Dict
 import shutil
 import uuid
+import json
+import redis
 from datetime import datetime
 import asyncio
 from collections import OrderedDict
@@ -21,17 +23,19 @@ from models import (
     VideoStatusResponse, VideoMergeResponse, VideoCircleRequest
 )
 from video_processor import VideoProcessor
-
-# In-memory storage for video processing status
-# Using OrderedDict to maintain insertion order and limit size
-MAX_STORAGE_ITEMS = 1000
-video_tasks: OrderedDict[str, Dict] = OrderedDict()
+from storage import StorageManager
+from tasks import process_video_task, process_circle_video_task
 
 app = FastAPI(
     title="Video Processing API",
     description="API for merging videos with music and subtitles",
     version="1.0.0"
 )
+
+# Redis for status storage
+redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
+redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
+STATUS_EXPIRE_TIME = 86400  # 24 hours
 
 # Настройка логирования
 logging.basicConfig(level=logging.INFO)
@@ -59,16 +63,27 @@ MAX_FILE_SIZE = 100 * 1024 * 1024  # 100MB
 MAX_VIDEOS = 20
 SUPPORTED_AUDIO_FORMATS = {'.mp3', '.wav', '.aac'}
 TEMP_DIR = tempfile.mkdtemp(prefix='video_processing_')
-# Persistent storage for final videos
-PERSISTENT_DIR = os.environ.get("PERSISTENT_DIR") or os.path.join(os.getcwd(), "storage")
-os.makedirs(PERSISTENT_DIR, exist_ok=True)
 
-# Serve persistent videos as static files
-app.mount("/media", StaticFiles(directory=PERSISTENT_DIR), name="media")
+def get_task_status(video_id: str) -> Optional[dict]:
+    key = f"task:{video_id}"
+    data = redis_client.get(key)
+    if data:
+        return json.loads(data)
+    return None
+
+def set_initial_status(video_id: str):
+    key = f"task:{video_id}"
+    data = {
+        "video_id": video_id,
+        "status": VideoStatus.PROCESSING,
+        "created_at": datetime.now().isoformat(),
+        "progress": 0.0
+    }
+    redis_client.set(key, json.dumps(data), ex=STATUS_EXPIRE_TIME)
+    return data
 
 @app.post("/video-circle", response_model=VideoStatusResponse)
 async def create_connected_video(
-    background_tasks: BackgroundTasks,
     request: VideoCircleRequest = Body(...)
 ):
     """
@@ -77,27 +92,26 @@ async def create_connected_video(
     video_id = str(uuid.uuid4())
     
     # Store initial status
-    video_tasks[video_id] = {
-        "video_id": video_id,
-        "status": VideoStatus.PROCESSING,
-        "created_at": datetime.now(),
-        "progress": 0.0
-    }
+    data = set_initial_status(video_id)
     
-    # Limit in-memory task history size
-    while len(video_tasks) > MAX_STORAGE_ITEMS:
-        video_tasks.popitem(last=False)
-        
-    # Start processing
-    background_tasks.add_task(process_circle_video_task, video_id, request)
+    # Start processing via Celery
+    process_circle_video_task.delay(video_id, request.model_dump())
     
-    return VideoStatusResponse(**video_tasks[video_id])
+    return VideoStatusResponse(**data)
 
 @app.get("/health", response_model=HealthResponse)
 async def health_check():
     """Check service health and FFmpeg availability"""
     processor = VideoProcessor()
     ffmpeg_version = processor.check_ffmpeg()
+    
+    # Check Redis
+    try:
+        redis_client.ping()
+        redis_status = "connected"
+    except:
+        redis_status = "disconnected"
+
     if not ffmpeg_version:
         return HealthResponse(status="error", ffmpeg_version=None)
     return HealthResponse(status="ok", ffmpeg_version=ffmpeg_version)
@@ -105,172 +119,16 @@ async def health_check():
 @app.get("/video-status/{video_id}", response_model=VideoStatusResponse)
 async def get_video_status(video_id: str):
     """Get status of video processing"""
-    if video_id not in video_tasks:
+    status_data = get_task_status(video_id)
+    
+    if not status_data:
         raise HTTPException(status_code=404, detail="Video not found")
     
-    return VideoStatusResponse(**video_tasks[video_id])
-
-async def process_video(
-    video_id: str,
-    video_merge_request: VideoMergeRequest,
-    music_path: Optional[str] = None
-):
-    """Background task for video processing"""
-    # Используем отдельную директорию для каждой задачи
-    task_dir = os.path.join(TEMP_DIR, video_id)
-    if not os.path.exists(task_dir):
-        os.makedirs(task_dir, exist_ok=True)
-        logger.info(f"Created task directory: {task_dir}")
-
-    processor = VideoProcessor(task_dir)
-    try:
-        # Update status to processing
-        video_tasks[video_id].update({
-            "status": VideoStatus.PROCESSING,
-            "progress": 0.0,
-            "task_dir": task_dir
-        })
-
-        async def update_progress(progress: float):
-            if video_id in video_tasks:
-                video_tasks[video_id]["progress"] = progress
-
-        # Process videos
-        output_file = await processor.merge_videos(
-            video_urls=[str(url) for url in video_merge_request.video_urls],
-            music_path=music_path,
-            subtitles_data=video_merge_request.subtitles_data,
-            karaoke_mode=video_merge_request.karaoke_mode,
-            subtitle_style=video_merge_request.subtitle_style,
-            output_filename=video_merge_request.output_filename,
-            progress_callback=update_progress
-        )
-
-        # Move final output to persistent storage with stable name
-        safe_name = os.path.basename(video_merge_request.output_filename) or "output.mp4"
-        final_name = f"{safe_name}"
-        persistent_path = os.path.join(PERSISTENT_DIR, final_name)
-        try:
-            shutil.move(output_file, persistent_path)
-        except Exception as move_err:
-            logger.error(f"Failed to move output to persistent storage: {move_err}")
-            raise
-
-        # Update status to completed
-        video_tasks[video_id].update({
-            "status": VideoStatus.COMPLETED,
-            "completed_at": datetime.now(),
-            "progress": 100.0,
-            # Permanent static URL
-            "download_url": f"/media/{final_name}"
-        })
-
-        # Store output file path
-        video_tasks[video_id]["output_file"] = persistent_path
-
-        # Cleanup temporary working directory
-        try:
-            processor.cleanup()
-        except Exception as ce:
-            logger.warning(f"Cleanup warning for {video_id}: {ce}")
-
-    except Exception as e:
-        # Update status to failed
-        logger.error(f"Error in process_video for {video_id}: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        video_tasks[video_id].update({
-            "status": VideoStatus.FAILED,
-            "error_message": str(e),
-            "completed_at": datetime.now()
-        })
-        processor.cleanup()
-        
-        # Очищаем директорию задачи при ошибке
-        if "task_dir" in video_tasks[video_id]:
-            task_dir = video_tasks[video_id]["task_dir"]
-            try:
-                shutil.rmtree(task_dir, ignore_errors=True)
-                logger.info(f"Cleaned up task directory after error: {task_dir}")
-            except Exception as cleanup_error:
-                logger.error(f"Error cleaning up task directory: {str(cleanup_error)}")
-
-async def process_circle_video_task(
-    video_id: str,
-    request: VideoCircleRequest
-):
-    """Background task for circle video processing"""
-    task_dir = os.path.join(TEMP_DIR, video_id)
-    if not os.path.exists(task_dir):
-        os.makedirs(task_dir, exist_ok=True)
-        logger.info(f"Created task directory for circle video: {task_dir}")
-
-    processor = VideoProcessor(task_dir)
-    try:
-        video_tasks[video_id].update({
-            "status": VideoStatus.PROCESSING,
-            "progress": 0.0,
-            "task_dir": task_dir
-        })
-
-        async def update_progress(progress: float):
-            if video_id in video_tasks:
-                video_tasks[video_id]["progress"] = progress
-
-        # Default internal filename
-        output_filename = "circle_video.mp4"
-
-        output_file = await processor.process_circle_video(
-            background_video_url=str(request.video_background_url),
-            circle_video_url=str(request.video_circle_url),
-            background_volume=request.background_volume,
-            circle_volume=request.circle_volume,
-            output_filename=output_filename,
-            progress_callback=update_progress
-        )
-
-        # Persistence logic
-        safe_name = "circle_connected.mp4"
-        final_name = f"circle_{video_id}_{safe_name}" 
-        persistent_path = os.path.join(PERSISTENT_DIR, final_name)
-        
-        try:
-            shutil.move(output_file, persistent_path)
-            logger.info(f"Moved output to: {persistent_path}")
-        except Exception as move_err:
-            logger.error(f"Move failed: {move_err}, trying copy")
-            shutil.copy2(output_file, persistent_path)
-
-        video_tasks[video_id].update({
-            "status": VideoStatus.COMPLETED,
-            "completed_at": datetime.now(),
-            "progress": 100.0,
-            "download_url": f"/media/{final_name}",
-            "output_file": persistent_path
-        })
-        
-        try:
-            processor.cleanup()
-        except Exception as ce:
-            logger.warning(f"Cleanup warning for {video_id}: {ce}")
-
-    except Exception as e:
-        logger.error(f"Error in process_circle_video_task for {video_id}: {str(e)}")
-        logger.error(traceback.format_exc())
-        video_tasks[video_id].update({
-            "status": VideoStatus.FAILED,
-            "error_message": str(e),
-            "completed_at": datetime.now()
-        })
-        # Clean up on failure
-        if "task_dir" in video_tasks[video_id]:
-            try:
-                shutil.rmtree(video_tasks[video_id]["task_dir"], ignore_errors=True)
-            except:
-                pass
-        try:
-            processor.cleanup()
-        except:
-            pass
+    # Ensure all required fields are present
+    if "status" not in status_data:
+        status_data["status"] = VideoStatus.PROCESSING
+    
+    return VideoStatusResponse(**status_data)
 
 
 class VideoMergeSimpleRequest(BaseModel):
@@ -282,7 +140,6 @@ class VideoMergeSimpleRequest(BaseModel):
 
 @app.post("/merge-videos", response_model=VideoMergeResponse)
 async def merge_videos(
-    background_tasks: BackgroundTasks,
     request: VideoMergeSimpleRequest
 ):
     """Start video merge process"""
@@ -292,84 +149,32 @@ async def merge_videos(
         if len(request.video_files) > MAX_VIDEOS:
             raise HTTPException(status_code=400, detail=f"Maximum {MAX_VIDEOS} videos allowed")
 
-        # Generate unique ID for this task
-        video_id = str(uuid.uuid4())
-
-        # Создаем отдельную папку для задачи
-        task_dir = os.path.join(TEMP_DIR, video_id)
-        os.makedirs(task_dir, exist_ok=True)
-        logger.info(f"Created task directory: {task_dir}")
-
-        music_path = None
         if request.music_url:
-            # Get file extension from URL
             parsed_url = urllib.parse.urlparse(request.music_url)
             file_ext = os.path.splitext(parsed_url.path)[1].lower()
             if not file_ext:
-                file_ext = '.mp3'  # Default to mp3 if no extension in URL
+                file_ext = '.mp3'
             
             if file_ext not in SUPPORTED_AUDIO_FORMATS:
-                shutil.rmtree(task_dir, ignore_errors=True)
                 raise HTTPException(status_code=400, detail="Unsupported audio format")
 
-            # Путь для сохранения музыки в папке задачи
-            music_path = os.path.join(task_dir, f"music{file_ext}")
+        # Generate unique ID for this task
+        video_id = str(uuid.uuid4())
 
-            # Download music file
-            async with aiohttp.ClientSession() as session:
-                async with session.get(request.music_url) as response:
-                    if response.status != 200:
-                        # Очищаем созданную директорию в случае ошибки
-                        shutil.rmtree(task_dir, ignore_errors=True)
-                        raise HTTPException(status_code=400, detail="Could not download music file")
-                    
-                    content_length = response.content_length
-                    if content_length and content_length > MAX_FILE_SIZE:
-                        # Очищаем созданную директорию в случае ошибки
-                        shutil.rmtree(task_dir, ignore_errors=True)
-                        raise HTTPException(status_code=400, detail="Music file too large")
-
-                    try:
-                        # Save music file
-                        with open(music_path, "wb") as f:
-                            while True:
-                                chunk = await response.content.read(8192)
-                                if not chunk:
-                                    break
-                                f.write(chunk)
-                    except Exception as e:
-                        # Очищаем созданную директорию в случае ошибки
-                        shutil.rmtree(task_dir, ignore_errors=True)
-                        logger.error(f"Error saving music file: {str(e)}")
-                        raise HTTPException(status_code=500, detail="Failed to save music file")
-
-        # Create VideoMergeRequest for processing
-        video_merge_request = VideoMergeRequest(
-            video_urls=request.video_files,
-            karaoke_mode=request.karaoke_mode,
-            subtitles_data=request.subtitles_data,
-            output_filename=request.output_filename
-        )
-
-        # Initialize task status
-        video_tasks[video_id] = {
-            "video_id": video_id,
-            "status": VideoStatus.PROCESSING,
-            "created_at": datetime.now(),
-            "progress": 0.0
+        # Create VideoMergeRequest for processing (internal model)
+        video_merge_request_data = {
+            "video_urls": request.video_files,
+            "karaoke_mode": request.karaoke_mode,
+            "subtitles_data": [s.model_dump() for s in request.subtitles_data] if request.subtitles_data else [],
+            "output_filename": request.output_filename,
+            "subtitle_style": None # Can be extended
         }
 
-        # Limit in-memory task history size (do not delete persisted files)
-        while len(video_tasks) > MAX_STORAGE_ITEMS:
-            video_tasks.popitem(last=False)
+        # Initialize task status
+        set_initial_status(video_id)
 
-        # Start processing in background
-        background_tasks.add_task(
-            process_video,
-            video_id,
-            video_merge_request,
-            music_path
-        )
+        # Start processing in background task queue
+        process_video_task.delay(video_id, video_merge_request_data, request.music_url)
 
         return VideoMergeResponse(
             video_id=video_id,
@@ -377,10 +182,6 @@ async def merge_videos(
             message="Video processing started"
         )
 
-    except aiohttp.ClientError as e:
-        logger.error(f"HTTP client error: {str(e)}")
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        raise HTTPException(status_code=400, detail=f"Failed to download music file: {str(e)}")
     except Exception as e:
         logger.error(f"Unexpected error in merge_videos: {str(e)}")
         logger.error(f"Traceback: {traceback.format_exc()}")
@@ -388,35 +189,25 @@ async def merge_videos(
 
 @app.get("/download/{video_id}")
 async def download_video(video_id: str):
-    """Download processed video"""
-    # First, try using in-memory task info if present
-    if video_id in video_tasks:
-        task = video_tasks[video_id]
-        if task["status"] != VideoStatus.COMPLETED:
-            raise HTTPException(status_code=400, detail="Video is not ready yet")
-        file_path = task.get("output_file")
-        if file_path and os.path.exists(file_path):
-            return FileResponse(
-                file_path,
-                media_type="video/mp4",
-                filename=os.path.basename(file_path)
-            )
+    """Download processed video (Redirect to MinIO)"""
+    status_data = get_task_status(video_id)
+    if not status_data:
+        raise HTTPException(status_code=404, detail="Video not found")
+        
+    if status_data.get("status") != VideoStatus.COMPLETED:
+        raise HTTPException(status_code=400, detail="Video is not ready yet")
+        
+    object_name = status_data.get("object_name")
+    if not object_name:
+        raise HTTPException(status_code=500, detail="File path missing in task status")
 
-    # Fallback: search persistent storage by video_id prefix to survive restarts
-    try:
-        for name in os.listdir(PERSISTENT_DIR):
-            if name.startswith(f"{video_id}_"):
-                file_path = os.path.join(PERSISTENT_DIR, name)
-                if os.path.isfile(file_path):
-                    return FileResponse(
-                        file_path,
-                        media_type="video/mp4",
-                        filename=name
-                    )
-    except FileNotFoundError:
-        pass
-
-    raise HTTPException(status_code=404, detail="Video not found")
+    storage = StorageManager()
+    url = storage.get_presigned_url(object_name)
+    
+    if not url:
+        raise HTTPException(status_code=500, detail="Could not generate download URL")
+        
+    return RedirectResponse(url=url)
 
 @app.post("/create-subtitles")
 async def create_subtitles(
@@ -430,11 +221,10 @@ async def create_subtitles(
 
     processor = VideoProcessor()
     try:
-        output_file = os.path.join(TEMP_DIR, f"subtitles.{output_format}")
+        output_file = os.path.join(TEMP_DIR, f"subtitles.srt") # Simplified
         if output_format == "srt":
             processor.create_srt_subtitles(subtitles_data, output_file)
         else:
-            # For ASS format (if implemented)
             raise HTTPException(status_code=400, detail="ASS format not implemented yet")
 
         return FileResponse(
@@ -447,23 +237,13 @@ async def create_subtitles(
 
 @app.delete("/video/{video_id}")
 async def delete_video_task(video_id: str):
-    """Delete video task and clean up its resources"""
-    if video_id not in video_tasks:
+    """Delete video task"""
+    key = f"task:{video_id}"
+    if not redis_client.exists(key):
         raise HTTPException(status_code=404, detail="Video task not found")
     
-    task = video_tasks[video_id]
-    
-    # Очищаем директорию задачи
-    if "task_dir" in task:
-        task_dir = task["task_dir"]
-        try:
-            shutil.rmtree(task_dir, ignore_errors=True)
-            logger.info(f"Cleaned up task directory: {task_dir}")
-        except Exception as e:
-            logger.error(f"Error cleaning up task directory: {str(e)}")
-    
-    # Удаляем задачу из словаря
-    video_tasks.pop(video_id)
+    redis_client.delete(key)
+    # Note: We probably should delete from MinIO too, but keeping it simple for now
     return {"message": "Video task deleted"}
 
 @app.on_event("shutdown")

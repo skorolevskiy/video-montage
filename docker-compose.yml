@@ -9,9 +9,63 @@ services:
       - "8000:8000"
     environment:
       - PERSISTENT_DIR=/app/storage
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET_NAME=videos
+      - MINIO_SECURE=False
     volumes:
       - ./app:/app
       - ./storage:/app/storage
+    depends_on:
+      - redis
+      - minio
+    networks:
+      - video-net
+
+  celery_worker:
+    build: .
+    container_name: video_worker
+    command: celery -A celery_worker.celery_app worker --loglevel=info
+    environment:
+      - PERSISTENT_DIR=/app/storage
+      - REDIS_URL=redis://redis:6379/0
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET_NAME=videos
+      - MINIO_SECURE=False
+    volumes:
+      - ./app:/app
+      - ./storage:/app/storage
+    depends_on:
+      - redis
+      - minio
+      - video-montage
+    networks:
+      - video-net
+
+  redis:
+    image: redis:alpine
+    container_name: video_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - video-net
+
+  minio:
+    image: minio/minio
+    container_name: video_minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=minioadmin
+      - MINIO_ROOT_PASSWORD=minioadmin
+    volumes:
+      - minio_data:/data
     networks:
       - video-net
 
@@ -39,3 +93,6 @@ services:
 
 networks:
   video-net:
+
+volumes:
+  minio_data:
