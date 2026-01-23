@@ -29,6 +29,7 @@ services:
   celery_worker:
     build: .
     container_name: video_worker
+    restart: always
     command: celery -A celery_worker.celery_app worker --loglevel=info
     environment:
       - PERSISTENT_DIR=/app/storage
