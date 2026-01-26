@@ -449,9 +449,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             if progress_callback:
                 await progress_callback(30.0)
 
-            # Get info for circle video to determine duration
+            # Get info for videos to determine duration and audio presence
             circle_info = await self.get_video_info(circle_video_path)
+            bg_info = await self.get_video_info(bg_video_path)
+            
             duration = circle_info.get('duration', 0)
+            has_circle_audio = circle_info.get('has_audio', False)
+            has_bg_audio = bg_info.get('has_audio', False)
 
             # 2. Construct FFmpeg command
             output_path = os.path.join(self.work_dir, output_filename)
@@ -465,26 +469,42 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             filter_complex = (
                 f"[1:v][0:v]scale2ref=w=iw*0.8:h=iw*0.8[over][bg];"
                 f"[over]format=yuva420p,geq=lum='p(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'[circular];"
-                f"[bg][circular]overlay=x=W-w-20:y=H-h-20[v];"
-                f"[0:a]volume={background_volume}[a0];"
-                f"[1:a]volume={circle_volume}[a1];"
-                f"[a0][a1]amix=inputs=2:duration=first[a]"
+                f"[bg][circular]overlay=x=W-w-20:y=H-h-20[v]"
             )
 
             cmd = [
                 self.ffmpeg_path,
                 '-i', bg_video_path,
-                '-i', circle_video_path,
-                '-filter_complex', filter_complex,
-                '-map', '[v]',
-                '-map', '[a]',
+                '-i', circle_video_path
+            ]
+            
+            map_audio = False
+            if has_bg_audio and has_circle_audio:
+                filter_complex += (
+                    f";[0:a]volume={background_volume}[a0];"
+                    f"[1:a]volume={circle_volume}[a1];"
+                    f"[a0][a1]amix=inputs=2:duration=first[a]"
+                )
+                map_audio = True
+            elif has_bg_audio:
+                filter_complex += f";[0:a]volume={background_volume}[a]"
+                map_audio = True
+            elif has_circle_audio:
+                filter_complex += f";[1:a]volume={circle_volume}[a]"
+                map_audio = True
+
+            cmd.extend(['-filter_complex', filter_complex, '-map', '[v]'])
+            
+            if map_audio:
+                cmd.extend(['-map', '[a]', '-c:a', 'aac'])
+
+            cmd.extend([
                 '-c:v', 'libx264',
                 '-preset', 'fast',
-                '-c:a', 'aac',
                 '-t', str(duration),
                 output_path,
                 '-y'
-            ]
+            ])
             
             print(f"DEBUG: Running FFmpeg command: {' '.join(cmd)}")
             result = await self._run_command(cmd)
