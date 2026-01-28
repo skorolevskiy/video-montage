@@ -85,7 +85,7 @@ async def create_avatar(avatar: AvatarCreate):
     sb = get_supabase()
     # Pydantic v2 use model_dump(mode='json') for serialization
     data = avatar.model_dump(mode='json')
-    result = sb.table("Avatars").insert(data).execute()
+    result = sb.table("avatars").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create avatar")
     return result.data[0]
@@ -93,7 +93,7 @@ async def create_avatar(avatar: AvatarCreate):
 @app.get("/avatars/{avatar_id}", response_model=Avatar)
 async def get_avatar(avatar_id: str):
     sb = get_supabase()
-    result = sb.table("Avatars").select("*").eq("id", avatar_id).execute()
+    result = sb.table("avatars").select("*").eq("id", avatar_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Avatar not found")
     return result.data[0]
@@ -101,7 +101,7 @@ async def get_avatar(avatar_id: str):
 @app.get("/avatars", response_model=List[Avatar])
 async def list_avatars():
     sb = get_supabase()
-    result = sb.table("Avatars").select("*").execute()
+    result = sb.table("avatars").select("*").execute()
     return result.data
 
 # --- Reference Motions Endpoints ---
@@ -109,7 +109,7 @@ async def list_avatars():
 async def create_reference(ref: ReferenceMotionCreate):
     sb = get_supabase()
     data = ref.model_dump(mode='json')
-    result = sb.table("Reference_Motions").insert(data).execute()
+    result = sb.table("reference_motions").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create reference")
     return result.data[0]
@@ -117,7 +117,7 @@ async def create_reference(ref: ReferenceMotionCreate):
 @app.get("/references", response_model=List[ReferenceMotion])
 async def list_references():
     sb = get_supabase()
-    result = sb.table("Reference_Motions").select("*").execute()
+    result = sb.table("reference_motions").select("*").execute()
     return result.data
 
 # --- Motion Cache Endpoints ---
@@ -127,7 +127,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
     
     # Check if exists (idempotency for same avatar+reference+success)
     # Note: 'eq' chaining works for AND
-    existing = sb.table("Motion_Cache").select("*") \
+    existing = sb.table("motion_cache").select("*") \
         .eq("avatar_id", str(motion.avatar_id)) \
         .eq("reference_id", str(motion.reference_id)) \
         .eq("status", "success") \
@@ -137,7 +137,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
         return existing.data[0]
 
     data = motion.model_dump(mode='json')
-    result = sb.table("Motion_Cache").insert(data).execute()
+    result = sb.table("motion_cache").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
     return result.data[0]
@@ -145,7 +145,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
 @app.get("/motions/{motion_id}", response_model=MotionCache)
 async def get_motion(motion_id: str):
     sb = get_supabase()
-    result = sb.table("Motion_Cache").select("*").eq("id", motion_id).execute()
+    result = sb.table("motion_cache").select("*").eq("id", motion_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Motion not found")
     return result.data[0]
@@ -154,7 +154,7 @@ async def get_motion(motion_id: str):
 async def update_motion(motion_id: str, update: MotionCacheUpdate):
     sb = get_supabase()
     data = update.model_dump(exclude_unset=True, mode='json')
-    result = sb.table("Motion_Cache").update(data).eq("id", motion_id).execute()
+    result = sb.table("motion_cache").update(data).eq("id", motion_id).execute()
     if not result.data:
          raise HTTPException(status_code=404, detail="Motion not found or update failed")
     return result.data[0]
@@ -164,7 +164,7 @@ async def update_motion(motion_id: str, update: MotionCacheUpdate):
 async def create_background(bg: BackgroundVideoCreate):
     sb = get_supabase()
     data = bg.model_dump(mode='json')
-    result = sb.table("Background_Library").insert(data).execute()
+    result = sb.table("background_library").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create background")
     return result.data[0]
@@ -172,7 +172,7 @@ async def create_background(bg: BackgroundVideoCreate):
 @app.get("/backgrounds", response_model=List[BackgroundVideo])
 async def list_backgrounds():
     sb = get_supabase()
-    result = sb.table("Background_Library").select("*").execute()
+    result = sb.table("background_library").select("*").execute()
     return result.data
 
 # --- Final Montages Endpoints ---
@@ -180,7 +180,7 @@ async def list_backgrounds():
 async def create_montage(montage: FinalMontageCreate):
     sb = get_supabase()
     data = montage.model_dump(mode='json')
-    result = sb.table("Final_Montages").insert(data).execute()
+    result = sb.table("final_montages").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create montage")
     return result.data[0]
@@ -188,7 +188,7 @@ async def create_montage(montage: FinalMontageCreate):
 @app.get("/montages/{montage_id}", response_model=FinalMontage)
 async def get_montage(montage_id: str):
     sb = get_supabase()
-    result = sb.table("Final_Montages").select("*").eq("id", montage_id).execute()
+    result = sb.table("final_montages").select("*").eq("id", montage_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found")
     return result.data[0]
@@ -197,7 +197,7 @@ async def get_montage(montage_id: str):
 async def update_montage(montage_id: str, update: FinalMontageUpdate):
     sb = get_supabase()
     data = update.model_dump(exclude_unset=True, mode='json')
-    result = sb.table("Final_Montages").update(data).eq("id", montage_id).execute()
+    result = sb.table("final_montages").update(data).eq("id", montage_id).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found or update failed")
     return result.data[0]
