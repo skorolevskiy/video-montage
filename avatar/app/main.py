@@ -171,15 +171,7 @@ async def create_background(bg: BackgroundVideoCreate):
     sb = get_supabase()
     data = bg.model_dump(mode='json')
     result = sb.table("background_library").insert(data).execute()
-    if not result.data
-
-@app.delete("/backgrounds/{bg_id}", status_code=204, tags=["Background Library"])
-async def delete_background(bg_id: str):
-    sb = get_supabase()
-    result = sb.table("background_library").delete().eq("id", bg_id).execute()
     if not result.data:
-        raise HTTPException(status_code=404, detail="Background video not found")
-    return None:
         raise HTTPException(status_code=500, detail="Failed to create background")
     return result.data[0]
 
@@ -188,6 +180,14 @@ async def list_backgrounds():
     sb = get_supabase()
     result = sb.table("background_library").select("*").execute()
     return result.data
+
+@app.delete("/backgrounds/{bg_id}", status_code=204, tags=["Background Library"])
+async def delete_background(bg_id: str):
+    sb = get_supabase()
+    result = sb.table("background_library").delete().eq("id", bg_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Background video not found")
+    return None
 
 # --- Final Montages Endpoints ---
 @app.post("/montages", response_model=FinalMontage, tags=["Final Montages"])
