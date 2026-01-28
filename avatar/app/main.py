@@ -86,6 +86,14 @@ async def list_avatars():
     result = sb.table("avatars").select("*").execute()
     return result.data
 
+@app.delete("/avatars/{avatar_id}", status_code=204, tags=["Avatars"])
+async def delete_avatar(avatar_id: str):
+    sb = get_supabase()
+    result = sb.table("avatars").delete().eq("id", avatar_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    return None
+
 # --- Reference Motions Endpoints ---
 @app.post("/references", response_model=ReferenceMotion, tags=["Reference Motions"])
 async def create_reference(ref: ReferenceMotionCreate):
@@ -101,6 +109,14 @@ async def list_references():
     sb = get_supabase()
     result = sb.table("reference_motions").select("*").execute()
     return result.data
+
+@app.delete("/references/{reference_id}", status_code=204, tags=["Reference Motions"])
+async def delete_reference(reference_id: str):
+    sb = get_supabase()
+    result = sb.table("reference_motions").delete().eq("id", reference_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Reference not found")
+    return None
 
 # --- Motion Cache Endpoints ---
 @app.post("/motions", response_model=MotionCache, tags=["Motion Cache"])
@@ -141,13 +157,29 @@ async def update_motion(motion_id: str, update: MotionCacheUpdate):
          raise HTTPException(status_code=404, detail="Motion not found or update failed")
     return result.data[0]
 
+@app.delete("/motions/{motion_id}", status_code=204, tags=["Motion Cache"])
+async def delete_motion(motion_id: str):
+    sb = get_supabase()
+    result = sb.table("motion_cache").delete().eq("id", motion_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Motion entry not found")
+    return None
+
 # --- Background Library Endpoints ---
 @app.post("/backgrounds", response_model=BackgroundVideo, tags=["Background Library"])
 async def create_background(bg: BackgroundVideoCreate):
     sb = get_supabase()
     data = bg.model_dump(mode='json')
     result = sb.table("background_library").insert(data).execute()
+    if not result.data
+
+@app.delete("/backgrounds/{bg_id}", status_code=204, tags=["Background Library"])
+async def delete_background(bg_id: str):
+    sb = get_supabase()
+    result = sb.table("background_library").delete().eq("id", bg_id).execute()
     if not result.data:
+        raise HTTPException(status_code=404, detail="Background video not found")
+    return None:
         raise HTTPException(status_code=500, detail="Failed to create background")
     return result.data[0]
 
@@ -175,6 +207,14 @@ async def get_montage(montage_id: str):
         raise HTTPException(status_code=404, detail="Montage not found")
     return result.data[0]
 
+
+@app.delete("/montages/{montage_id}", status_code=204, tags=["Final Montages"])
+async def delete_montage(montage_id: str):
+    sb = get_supabase()
+    result = sb.table("final_montages").delete().eq("id", montage_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Montage not found")
+    return None
 @app.patch("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def update_montage(montage_id: str, update: FinalMontageUpdate):
     sb = get_supabase()
