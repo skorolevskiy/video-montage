@@ -13,7 +13,8 @@ from tasks import generate_avatar_task
 app = FastAPI(
     title="Avatar Generation API",
     description="API for generating avatars",
-    version="1.0.0"
+    version="1.0.0",
+    root_path="/avatar"
 )
 
 # Redis for status
