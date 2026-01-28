@@ -1,9 +1,9 @@
 version: "3.8"
 
 services:
-  video-montage:
-    build: .
-    container_name: video-montage
+  montage-api:
+    build: ./montage
+    container_name: montage-api
     command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
       - "8000:8000"
@@ -18,7 +18,7 @@ services:
       - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
       - APP_BASE_URL=https://uniq.powercodeai.space
     volumes:
-      - ./app:/app
+      - ./montage/app:/app
       - ./storage:/app/storage
     depends_on:
       - redis
@@ -26,11 +26,11 @@ services:
     networks:
       - video-net
 
-  celery_worker:
-    build: .
-    container_name: video_worker
+  montage-worker:
+    build: ./montage
+    container_name: montage-worker
     restart: always
-    command: celery -A celery_worker.celery_app worker --loglevel=info
+    command: celery -A celery_worker.celery_app worker --loglevel=info -Q montage_queue
     environment:
       - PERSISTENT_DIR=/app/storage
       - REDIS_URL=redis://redis:6379/0
@@ -41,12 +41,46 @@ services:
       - MINIO_SECURE=False
       - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
     volumes:
-      - ./app:/app
+      - ./montage/app:/app
       - ./storage:/app/storage
     depends_on:
       - redis
       - minio
-      - video-montage
+      - montage-api
+    networks:
+      - video-net
+
+  avatar-api:
+    build: ./avatar
+    container_name: avatar-api
+    command: uvicorn main:app --host 0.0.0.0 --port 8001 --reload
+    ports:
+      - "8001:8001"
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PERSISTENT_DIR=/app/storage
+    volumes:
+      - ./avatar/app:/app
+      - ./storage:/app/storage
+    depends_on:
+      - redis
+    networks:
+      - video-net
+
+  avatar-worker:
+    build: ./avatar
+    container_name: avatar-worker
+    restart: always
+    command: celery -A celery_worker.celery_app worker --loglevel=info -Q avatar_queue
+    environment:
+      - REDIS_URL=redis://redis:6379/0
+      - PERSISTENT_DIR=/app/storage
+    volumes:
+      - ./avatar/app:/app
+      - ./storage:/app/storage
+    depends_on:
+      - redis
+      - avatar-api
     networks:
       - video-net
 
@@ -83,7 +117,8 @@ services:
       - ./certbot/conf:/etc/letsencrypt
       - ./certbot/www:/var/www/certbot
     depends_on:
-      - video-montage
+      - montage-api
+      - avatar-api
     networks:
       - video-net
 
