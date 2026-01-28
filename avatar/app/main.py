@@ -16,7 +16,7 @@ from models import (
     BackgroundVideo, BackgroundVideoCreate,
     FinalMontage, FinalMontageCreate, FinalMontageUpdate
 )
-from tasks import generate_avatar_task
+from tasks import generate_avatar_task, monitor_montage_task
 from supabase import create_client, Client
 from typing import List
 
@@ -41,6 +41,7 @@ SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
 KIE_API_KEY = os.environ.get("KIE_API_KEY")
 CALLBACK_BASE_URL = os.environ.get("CALLBACK_BASE_URL")
+MONTAGE_SERVICE_URL = os.environ.get("MONTAGE_SERVICE_URL", "http://montage-api:8000")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.warning("Supabase credentials not found. DB operations will fail.")
@@ -157,7 +158,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
         "model": "kling-2.6/motion-control",
         "callBackUrl": f"{cb_base}/avatar/callback",
         "input": {
-            "prompt": "The cartoon character is dancing.",
+            "prompt": "Change man on video.",
             "input_urls": [avatar_url],
             "video_urls": [ref_url],
             "character_orientation": "video",
@@ -183,7 +184,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
                     result_json = await resp.json()
                     if result_json.get("code") != 200:
                         logger.error(f"KIE API Logic Error: {result_json}")
-                        raise HTTPException(status_code=502, detail=f"External API returned error: {result_json.get('message')}")
+                        raise HTTPException(status_code=502, detail=f"External API returned error: {result_json.get('msg')}")
                     
                     task_id = result_json["data"]["taskId"]
         except HTTPException:
@@ -206,6 +207,14 @@ async def create_motion_cache(motion: MotionCacheCreate):
         raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
     return result.data[0]
 
+@app.get("/motions/", response_model=MotionCache, tags=["Motion Cache"])
+async def list_motion():
+    sb = get_supabase()
+    result = sb.table("motion_cache").select("*").execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Motions not found")
+    return result.data
+
 @app.get("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
 async def get_motion(motion_id: str):
     sb = get_supabase()
@@ -221,7 +230,7 @@ async def update_motion(motion_id: str, update: MotionCacheUpdate):
     result = sb.table("motion_cache").update(data).eq("id", motion_id).execute()
     if not result.data:
          raise HTTPException(status_code=404, detail="Motion not found or update failed")
-    return result.data[0]
+    return result.data
 
 @app.delete("/motions/{motion_id}", status_code=204, tags=["Motion Cache"])
 async def delete_motion(motion_id: str):
@@ -259,11 +268,67 @@ async def delete_background(bg_id: str):
 @app.post("/montages", response_model=FinalMontage, tags=["Final Montages"])
 async def create_montage(montage: FinalMontageCreate):
     sb = get_supabase()
+
+    # 1. Fetch Background URL
+    bg_res = sb.table("background_library").select("video_url").eq("id", str(montage.bg_video_id)).execute()
+    if not bg_res.data:
+        raise HTTPException(status_code=404, detail="Background video not found")
+    bg_url = bg_res.data[0]["video_url"]
+
+    # 2. Fetch Motion URL
+    motion_res = sb.table("motion_cache").select("motion_video_url").eq("id", str(montage.motion_id)).execute()
+    if not motion_res.data:
+        raise HTTPException(status_code=404, detail="Motion entry not found")
+    
+    motion_url = motion_res.data[0]["motion_video_url"]
+    if not motion_url:
+        raise HTTPException(status_code=400, detail="Motion video is not ready yet (url is empty)")
+
+    # 3. Save to DB
     data = montage.model_dump(mode='json')
     result = sb.table("final_montages").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create montage")
-    return result.data[0]
+    
+    final_montage_record = result.data[0]
+    montage_id = final_montage_record["id"]
+
+    # 4. Send to video-montage service
+    payload = {
+        "video_background_url": bg_url,
+        "video_circle_url": motion_url,
+        "background_volume": 1,
+        "circle_volume": 1
+    }
+
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(f"{MONTAGE_SERVICE_URL}/video-circle", json=payload) as resp:
+                if resp.status != 200:
+                    err_text = await resp.text()
+                    logger.error(f"Montage Service Error: {resp.status} - {err_text}")
+                    # Update status to error if dispatch failed
+                    sb.table("final_montages").update({"status": "error"}).eq("id", montage_id).execute()
+                else:
+                    try:
+                        resp_data = await resp.json()
+                        external_video_id = resp_data.get("video_id")
+                        if external_video_id:
+                            # Schedule monitoring task (wait 1 minute initially)
+                            monitor_montage_task.apply_async(args=[str(montage_id), external_video_id], countdown=60)
+                            logger.info(f"Successfully sent montage request for {montage_id}, monitoring scheduled.")
+                        else:
+                            logger.error(f"No video_id in montage response: {resp_data}")
+                            sb.table("final_montages").update({"status": "error"}).eq("id", montage_id).execute()
+                    except Exception as json_err:
+                        logger.error(f"Failed to parse montage response: {json_err}")
+                        sb.table("final_montages").update({"status": "error"}).eq("id", montage_id).execute()
+
+    except Exception as e:
+        logger.error(f"Failed to communicate with Montage Service: {e}")
+        sb.table("final_montages").update({"status": "error"}).eq("id", montage_id).execute()
+
+    return final_montage_record
 
 @app.get("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def get_montage(montage_id: str):
