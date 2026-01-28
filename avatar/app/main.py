@@ -215,6 +215,7 @@ async def delete_montage(montage_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found")
     return None
+
 @app.patch("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def update_montage(montage_id: str, update: FinalMontageUpdate):
     sb = get_supabase()
