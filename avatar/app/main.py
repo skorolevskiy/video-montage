@@ -207,7 +207,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
         raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
     return result.data[0]
 
-@app.get("/motions/", response_model=MotionCache, tags=["Motion Cache"])
+@app.get("/motions", response_model=MotionCache, tags=["Motion Cache"])
 async def list_motion():
     sb = get_supabase()
     result = sb.table("motion_cache").select("*").execute()
