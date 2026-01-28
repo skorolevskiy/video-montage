@@ -48,13 +48,20 @@ def upload_to_minio(file_content, object_name):
     client.put_object(MINIO_BUCKET_NAME, object_name, data_stream, length, content_type="video/mp4")
     
     # Generate URL
-    if MINIO_EXTERNAL_URL:
-        # Avoid double slashes
-        base = MINIO_EXTERNAL_URL.rstrip('/')
-        return f"{base}/{MINIO_BUCKET_NAME}/{object_name}"
-    else:
-        # Fallback to presigned
-        return client.get_presigned_url("GET", MINIO_BUCKET_NAME, object_name, expires=timedelta(days=7))
+    # Always initiate with a presigned URL (handles private buckets)
+    # Expiry 7 days
+    url = client.get_presigned_url("GET", MINIO_BUCKET_NAME, object_name, expires=timedelta(days=7))
+    
+    if MINIO_EXTERNAL_URL and url:
+        # Replace internal endpoint with external URL
+        internal_base = f"http://{MINIO_ENDPOINT}"
+        # We might need to handle https if internal minio was https, but here it's http://minio:9000
+        if MINIO_SECURE:
+             internal_base = f"https://{MINIO_ENDPOINT}"
+             
+        return url.replace(internal_base, MINIO_EXTERNAL_URL)
+        
+    return url
 
 def update_status(task_id: str, data: dict):
     key = f"avatar_task:{task_id}"
