@@ -57,30 +57,12 @@ def set_initial_status(task_id: str):
     redis_client.set(key, json.dumps(data), ex=STATUS_EXPIRE_TIME)
     return data
 
-@app.get("/health")
+@app.get("/health", tags=["Health"])
 async def health():
     return {"status": "ok", "service": "avatar-service"}
 
-@app.post("/generate", response_model=AvatarStatusResponse)
-async def generate_avatar(request: AvatarRequest = Body(...)):
-    task_id = str(uuid.uuid4())
-    data = set_initial_status(task_id)
-    
-    # Send to Celery
-    generate_avatar_task.delay(task_id, request.dict())
-    
-    return AvatarStatusResponse(**data)
-
-@app.get("/status/{task_id}", response_model=AvatarStatusResponse)
-async def get_status(task_id: str):
-    key = f"avatar_task:{task_id}"
-    data = redis_client.get(key)
-    if not data:
-        raise HTTPException(status_code=404, detail="Task not found")
-    return json.loads(data)
-
 # --- Avatars Endpoints ---
-@app.post("/avatars", response_model=Avatar)
+@app.post("/avatars", response_model=Avatar, tags=["Avatars"])
 async def create_avatar(avatar: AvatarCreate):
     sb = get_supabase()
     # Pydantic v2 use model_dump(mode='json') for serialization
@@ -90,7 +72,7 @@ async def create_avatar(avatar: AvatarCreate):
         raise HTTPException(status_code=500, detail="Failed to create avatar")
     return result.data[0]
 
-@app.get("/avatars/{avatar_id}", response_model=Avatar)
+@app.get("/avatars/{avatar_id}", response_model=Avatar, tags=["Avatars"])
 async def get_avatar(avatar_id: str):
     sb = get_supabase()
     result = sb.table("avatars").select("*").eq("id", avatar_id).execute()
@@ -98,14 +80,14 @@ async def get_avatar(avatar_id: str):
         raise HTTPException(status_code=404, detail="Avatar not found")
     return result.data[0]
 
-@app.get("/avatars", response_model=List[Avatar])
+@app.get("/avatars", response_model=List[Avatar], tags=["Avatars"])
 async def list_avatars():
     sb = get_supabase()
     result = sb.table("avatars").select("*").execute()
     return result.data
 
 # --- Reference Motions Endpoints ---
-@app.post("/references", response_model=ReferenceMotion)
+@app.post("/references", response_model=ReferenceMotion, tags=["Reference Motions"])
 async def create_reference(ref: ReferenceMotionCreate):
     sb = get_supabase()
     data = ref.model_dump(mode='json')
@@ -114,14 +96,14 @@ async def create_reference(ref: ReferenceMotionCreate):
         raise HTTPException(status_code=500, detail="Failed to create reference")
     return result.data[0]
 
-@app.get("/references", response_model=List[ReferenceMotion])
+@app.get("/references", response_model=List[ReferenceMotion], tags=["Reference Motions"])
 async def list_references():
     sb = get_supabase()
     result = sb.table("reference_motions").select("*").execute()
     return result.data
 
 # --- Motion Cache Endpoints ---
-@app.post("/motions", response_model=MotionCache)
+@app.post("/motions", response_model=MotionCache, tags=["Motion Cache"])
 async def create_motion_cache(motion: MotionCacheCreate):
     sb = get_supabase()
     
@@ -142,7 +124,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
         raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
     return result.data[0]
 
-@app.get("/motions/{motion_id}", response_model=MotionCache)
+@app.get("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
 async def get_motion(motion_id: str):
     sb = get_supabase()
     result = sb.table("motion_cache").select("*").eq("id", motion_id).execute()
@@ -150,7 +132,7 @@ async def get_motion(motion_id: str):
         raise HTTPException(status_code=404, detail="Motion not found")
     return result.data[0]
 
-@app.patch("/motions/{motion_id}", response_model=MotionCache)
+@app.patch("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
 async def update_motion(motion_id: str, update: MotionCacheUpdate):
     sb = get_supabase()
     data = update.model_dump(exclude_unset=True, mode='json')
@@ -160,7 +142,7 @@ async def update_motion(motion_id: str, update: MotionCacheUpdate):
     return result.data[0]
 
 # --- Background Library Endpoints ---
-@app.post("/backgrounds", response_model=BackgroundVideo)
+@app.post("/backgrounds", response_model=BackgroundVideo, tags=["Background Library"])
 async def create_background(bg: BackgroundVideoCreate):
     sb = get_supabase()
     data = bg.model_dump(mode='json')
@@ -169,14 +151,14 @@ async def create_background(bg: BackgroundVideoCreate):
         raise HTTPException(status_code=500, detail="Failed to create background")
     return result.data[0]
 
-@app.get("/backgrounds", response_model=List[BackgroundVideo])
+@app.get("/backgrounds", response_model=List[BackgroundVideo], tags=["Background Library"])
 async def list_backgrounds():
     sb = get_supabase()
     result = sb.table("background_library").select("*").execute()
     return result.data
 
 # --- Final Montages Endpoints ---
-@app.post("/montages", response_model=FinalMontage)
+@app.post("/montages", response_model=FinalMontage, tags=["Final Montages"])
 async def create_montage(montage: FinalMontageCreate):
     sb = get_supabase()
     data = montage.model_dump(mode='json')
@@ -185,7 +167,7 @@ async def create_montage(montage: FinalMontageCreate):
         raise HTTPException(status_code=500, detail="Failed to create montage")
     return result.data[0]
 
-@app.get("/montages/{montage_id}", response_model=FinalMontage)
+@app.get("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def get_montage(montage_id: str):
     sb = get_supabase()
     result = sb.table("final_montages").select("*").eq("id", montage_id).execute()
@@ -193,7 +175,7 @@ async def get_montage(montage_id: str):
         raise HTTPException(status_code=404, detail="Montage not found")
     return result.data[0]
 
-@app.patch("/montages/{montage_id}", response_model=FinalMontage)
+@app.patch("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def update_montage(montage_id: str, update: FinalMontageUpdate):
     sb = get_supabase()
     data = update.model_dump(exclude_unset=True, mode='json')
