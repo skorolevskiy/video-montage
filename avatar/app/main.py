@@ -7,6 +7,7 @@ from datetime import datetime
 import os
 import json
 import redis
+import aiohttp
 from models import (
     AvatarRequest, AvatarStatusResponse, VideoStatus,
     Avatar, AvatarCreate,
@@ -38,6 +39,9 @@ logger = logging.getLogger(__name__)
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 
+KIE_API_KEY = os.environ.get("KIE_API_KEY")
+CALLBACK_BASE_URL = os.environ.get("CALLBACK_BASE_URL")
+
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.warning("Supabase credentials not found. DB operations will fail.")
 
@@ -56,10 +60,6 @@ def set_initial_status(task_id: str):
     }
     redis_client.set(key, json.dumps(data), ex=STATUS_EXPIRE_TIME)
     return data
-
-@app.get("/health", tags=["Health"])
-async def health():
-    return {"status": "ok", "service": "avatar-service"}
 
 # --- Avatars Endpoints ---
 @app.post("/avatars", response_model=Avatar, tags=["Avatars"])
@@ -134,7 +134,73 @@ async def create_motion_cache(motion: MotionCacheCreate):
     if existing.data:
         return existing.data[0]
 
+    # Fetch URLs
+    av_res = sb.table("avatars").select("image_url").eq("id", str(motion.avatar_id)).execute()
+    if not av_res.data:
+        raise HTTPException(status_code=404, detail="Avatar not found")
+    avatar_url = av_res.data[0]["image_url"]
+
+    ref_res = sb.table("reference_motions").select("video_url").eq("id", str(motion.reference_id)).execute()
+    if not ref_res.data:
+        raise HTTPException(status_code=404, detail="Reference motion not found")
+    ref_url = ref_res.data[0]["video_url"]
+
+    # Call External API
+    if not KIE_API_KEY:
+        # For development/safety, maybe just log warning or fail.
+        logger.warning("KIE_API_KEY is missing")
+        # raise HTTPException(status_code=500, detail="KIE_API_KEY not configured")
+
+    # Use config for callback base, default to something if testing
+    cb_base = CALLBACK_BASE_URL or "https://your-domain.com"
+    payload = {
+        "model": "kling-2.6/motion-control",
+        "callBackUrl": f"{cb_base}/avatar/callback",
+        "input": {
+            "prompt": "The cartoon character is dancing.",
+            "input_urls": [avatar_url],
+            "video_urls": [ref_url],
+            "character_orientation": "video",
+            "mode": "720p"
+        }
+    }
+    
+    headers = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {KIE_API_KEY}"
+    }
+
+    task_id = None
+    if KIE_API_KEY:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.post("https://api.kie.ai/api/v1/jobs/createTask", json=payload, headers=headers) as resp:
+                    if resp.status != 200:
+                        text = await resp.text()
+                        logger.error(f"KIE API Error: {resp.status} {text}")
+                        raise HTTPException(status_code=502, detail=f"External API failed: {text}")
+                    
+                    result_json = await resp.json()
+                    if result_json.get("code") != 200:
+                        logger.error(f"KIE API Logic Error: {result_json}")
+                        raise HTTPException(status_code=502, detail=f"External API returned error: {result_json.get('message')}")
+                    
+                    task_id = result_json["data"]["taskId"]
+        except HTTPException:
+            raise
+        except Exception as e:
+            logger.error(f"Failed to request motion generation: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to request motion generation: {str(e)}")
+    else:
+         # Mocking or Failure
+         logger.warning("Skipping KIE API call due to missing key. Creating pending logic without ID.")
+         # raise HTTPException(status_code=500, detail="KIE API Key missing")
+         task_id = f"mock_{uuid.uuid4()}"
+
     data = motion.model_dump(mode='json')
+    data["external_job_id"] = task_id
+    data["status"] = "processing"
+
     result = sb.table("motion_cache").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
@@ -224,3 +290,49 @@ async def update_montage(montage_id: str, update: FinalMontageUpdate):
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found or update failed")
     return result.data[0]
+
+@app.post("/callback", tags=["Callbacks"])
+async def handle_callback(payload: dict = Body(...)):
+    # Validate basics
+    if payload.get("code") != 200:
+        logger.warning(f"Callback received with non-200 code: {payload}")
+        return JSONResponse({"status": "ignored"})
+    
+    data = payload.get("data", {})
+    task_id = data.get("taskId")
+    state = data.get("state")
+    
+    if not task_id:
+        return JSONResponse({"status": "no_task_id"}, status_code=400)
+
+    sb = get_supabase()
+    
+    # We update based on external_job_id
+    if state == "success":
+        result_json_str = data.get("resultJson")
+        video_url = None
+        try:
+            if result_json_str:
+                res_data = json.loads(result_json_str)
+                urls = res_data.get("resultUrls", [])
+                if urls:
+                    video_url = urls[0]
+        except Exception as e:
+            logger.error(f"Failed to parse resultJson: {e}")
+        
+        if video_url:
+            update_data = {
+                "status": "success",
+                "motion_video_url": video_url
+            }
+            sb.table("motion_cache").update(update_data).eq("external_job_id", task_id).execute()
+    else:
+        # handle fail
+        fail_msg = data.get("failMsg")
+        update_data = {
+            "status": "failed",
+            "error_log": fail_msg
+        }
+        sb.table("motion_cache").update(update_data).eq("external_job_id", task_id).execute()
+
+    return JSONResponse({"status": "ok"})
