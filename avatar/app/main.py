@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Response
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Response, File, UploadFile, Form
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -10,6 +10,9 @@ import os
 import json
 import redis
 import aiohttp
+import shutil
+import subprocess
+import tempfile
 from minio import Minio
 from models import (
     AvatarRequest, AvatarStatusResponse, VideoStatus,
@@ -17,7 +20,8 @@ from models import (
     ReferenceMotion, ReferenceMotionCreate,
     MotionCache, MotionCacheCreate, MotionCacheUpdate,
     BackgroundVideo, BackgroundVideoCreate,
-    FinalMontage, FinalMontageCreate, FinalMontageUpdate
+    FinalMontage, FinalMontageCreate, FinalMontageUpdate,
+    SourceType
 )
 from tasks import generate_avatar_task, monitor_montage_task
 from supabase import create_client, Client
@@ -309,6 +313,42 @@ async def create_motion_cache(motion: MotionCacheCreate):
          # raise HTTPException(status_code=500, detail="KIE API Key missing")
          task_id = f"mock_{uuid.uuid4()}"
 
+    data = motion.model_dump(mode='json')
+    data["external_job_id"] = task_id
+    data["status"] = "processing"
+
+    result = sb.table("motion_cache").insert(data).execute()
+    if not result.data:
+        raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
+    return result.data[0]
+
+@app.get("/motions", response_model=List[MotionCache], tags=["Motion Cache"])
+async def list_motion():
+    sb = get_supabase()
+    result = sb.table("motion_cache").select("*").execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Motions not found")
+    return result.data
+
+@app.get("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
+async def get_motion(motion_id: str):
+    sb = get_supabase()
+    result = sb.table("motion_cache").select("*").eq("id", motion_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Motion not found")
+    return result.data[0]
+
+@app.delete("/motions/{motion_id}", status_code=204, tags=["Motion Cache"])
+async def delete_motion(motion_id: str):
+    sb = get_supabase()
+    result = sb.table("motion_cache").delete().eq("id", motion_id).execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Motion entry not found")
+    return None
+
+# --- Background Library Endpoints ---
+@app.post("/backgrounds", response_model=BackgroundVideo, tags=["Background Library"])
+async def create_background(
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     duration_seconds: float = Form(...)
@@ -347,42 +387,6 @@ async def create_motion_cache(motion: MotionCacheCreate):
         "title": title,
         "duration_seconds": duration_seconds
     }
-    data["status"] = "processing"
-
-    result = sb.table("motion_cache").insert(data).execute()
-    if not result.data:
-        raise HTTPException(status_code=500, detail="Failed to create motion cache entry")
-    return result.data[0]
-
-@app.get("/motions", response_model=List[MotionCache], tags=["Motion Cache"])
-async def list_motion():
-    sb = get_supabase()
-    result = sb.table("motion_cache").select("*").execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Motions not found")
-    return result.data
-
-@app.get("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
-async def get_motion(motion_id: str):
-    sb = get_supabase()
-    result = sb.table("motion_cache").select("*").eq("id", motion_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Motion not found")
-    return result.data[0]
-
-@app.delete("/motions/{motion_id}", status_code=204, tags=["Motion Cache"])
-async def delete_motion(motion_id: str):
-    sb = get_supabase()
-    result = sb.table("motion_cache").delete().eq("id", motion_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Motion entry not found")
-    return None
-
-# --- Background Library Endpoints ---
-@app.post("/backgrounds", response_model=BackgroundVideo, tags=["Background Library"])
-async def create_background(bg: BackgroundVideoCreate):
-    sb = get_supabase()
-    data = bg.model_dump(mode='json')
     result = sb.table("background_library").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create background")
