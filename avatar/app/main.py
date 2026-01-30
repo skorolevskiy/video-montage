@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Body
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Body, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
@@ -410,22 +410,17 @@ async def handle_callback(payload: dict = Body(...)):
 
 @app.get("/files/{filename}", tags=["Files"])
 async def get_file(filename: str):
-    client = Minio(
-        MINIO_ENDPOINT,
-        access_key=MINIO_ACCESS_KEY,
-        secret_key=MINIO_SECRET_KEY,
-        secure=MINIO_SECURE
+    # Use X-Accel-Redirect to let Nginx serve the file from MinIO directly
+    # This avoids passing large files through Python
+    
+    # Path must match the internal location in Nginx
+    # /files_internal/{bucket_name}/{filename}
+    redirect_url = f"/files_internal/{MINIO_BUCKET_NAME}/{filename}"
+    
+    return Response(
+        headers={
+            "X-Accel-Redirect": redirect_url,
+            "Content-Type": "video/mp4",
+            "Content-Disposition": f'inline; filename="{filename}"'
+        }
     )
-    try:
-        # Check if object exists
-        # client.stat_object(MINIO_BUCKET_NAME, filename)
-        
-        response = client.get_object(MINIO_BUCKET_NAME, filename)
-        return StreamingResponse(
-            response, 
-            media_type="video/mp4",
-            headers={"Content-Disposition": f'inline; filename="{filename}"'}
-        )
-    except Exception as e:
-        logger.error(f"File not found: {e}")
-        raise HTTPException(status_code=404, detail="File not found")
