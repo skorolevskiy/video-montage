@@ -105,6 +105,19 @@ def generate_thumbnail(video_path: str) -> str:
         logger.error(f"Thumbnail generation failed: {e}")
     return None
 
+def get_video_duration(video_path: str) -> float:
+    try:
+        result = subprocess.run(
+            ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "default=noprint_wrappers=1:nokey=1", video_path],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True
+        )
+        return float(result.stdout.strip())
+    except Exception as e:
+        logger.error(f"Failed to get video duration: {e}")
+        return 0.0
+
 def set_initial_status(task_id: str):
     key = f"avatar_task:{task_id}"
     data = {
@@ -178,8 +191,7 @@ async def delete_avatar(avatar_id: str):
 @app.post("/references", response_model=ReferenceMotion, tags=["Reference Motions"])
 async def create_reference(
     file: UploadFile = File(...),
-    label: Optional[str] = Form(None),
-    duration_seconds: float = Form(...)
+    label: Optional[str] = Form(None)
 ):
     temp_file = tempfile.mktemp(suffix=os.path.splitext(file.filename)[1])
     try:
@@ -191,6 +203,9 @@ async def create_reference(
              
         filename = f"ref_{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
         video_url = upload_file_to_minio(temp_file, filename, file.content_type)
+        
+        # Get duration
+        duration_seconds = get_video_duration(temp_file)
         
         # Thumbnail
         thumb_path = generate_thumbnail(temp_file)
@@ -350,8 +365,7 @@ async def delete_motion(motion_id: str):
 @app.post("/backgrounds", response_model=BackgroundVideo, tags=["Background Library"])
 async def create_background(
     file: UploadFile = File(...),
-    title: Optional[str] = Form(None),
-    duration_seconds: float = Form(...)
+    title: Optional[str] = Form(None)
 ):
     temp_file = tempfile.mktemp(suffix=os.path.splitext(file.filename)[1])
     try:
@@ -363,6 +377,9 @@ async def create_background(
              
         filename = f"bg_{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
         video_url = upload_file_to_minio(temp_file, filename, file.content_type)
+        
+        # Get duration
+        duration_seconds = get_video_duration(temp_file)
         
         # Thumbnail
         thumb_path = generate_thumbnail(temp_file)
