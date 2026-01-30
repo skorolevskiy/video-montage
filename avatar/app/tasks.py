@@ -18,6 +18,7 @@ STATUS_EXPIRE_TIME = 86400
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
 MONTAGE_SERVICE_URL = os.environ.get("MONTAGE_SERVICE_URL", "http://montage-api:8000")
+APP_BASE_URL = os.environ.get("APP_BASE_URL")
 
 # Minio init
 MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "minio:9000")
@@ -47,6 +48,13 @@ def upload_to_minio(file_content, object_name):
     length = len(file_content)
     client.put_object(MINIO_BUCKET_NAME, object_name, data_stream, length, content_type="video/mp4")
     
+    # If we have APP_BASE_URL, return the proxy URL
+    if APP_BASE_URL:
+        # e.g. https://uniq.powercodeai.space/avatar/files/myvideo.mp4
+        # Remove trailing slash from base if present
+        base = APP_BASE_URL.rstrip('/')
+        return f"{base}/avatar/files/{object_name}"
+
     # Generate URL
     # Always initiate with a presigned URL (handles private buckets)
     # Expiry 7 days

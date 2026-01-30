@@ -1,5 +1,5 @@
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Body
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 import traceback
@@ -9,6 +9,7 @@ import os
 import json
 import redis
 import aiohttp
+from minio import Minio
 from models import (
     AvatarRequest, AvatarStatusResponse, VideoStatus,
     Avatar, AvatarCreate,
@@ -19,7 +20,7 @@ from models import (
 )
 from tasks import generate_avatar_task, monitor_montage_task
 from supabase import create_client, Client
-from typing import List
+from typing import Final, List
 
 app = FastAPI(
     title="Avatar Generation API",
@@ -47,6 +48,13 @@ logger = logging.getLogger(__name__)
 # Supabase Client
 SUPABASE_URL = os.environ.get("SUPABASE_URL")
 SUPABASE_KEY = os.environ.get("SUPABASE_KEY")
+
+# Minio Client
+MINIO_ENDPOINT = os.environ.get("MINIO_ENDPOINT", "minio:9000")
+MINIO_ACCESS_KEY = os.environ.get("MINIO_ACCESS_KEY", "minioadmin")
+MINIO_SECRET_KEY = os.environ.get("MINIO_SECRET_KEY", "minioadmin")
+MINIO_BUCKET_NAME = os.environ.get("MINIO_BUCKET_NAME", "videos")
+MINIO_SECURE = os.environ.get("MINIO_SECURE", "False").lower() == "true"
 
 KIE_API_KEY = os.environ.get("KIE_API_KEY")
 CALLBACK_BASE_URL = os.environ.get("CALLBACK_BASE_URL")
@@ -232,15 +240,6 @@ async def get_motion(motion_id: str):
         raise HTTPException(status_code=404, detail="Motion not found")
     return result.data[0]
 
-@app.patch("/motions/{motion_id}", response_model=MotionCache, tags=["Motion Cache"])
-async def update_motion(motion_id: str, update: MotionCacheUpdate):
-    sb = get_supabase()
-    data = update.model_dump(exclude_unset=True, mode='json')
-    result = sb.table("motion_cache").update(data).eq("id", motion_id).execute()
-    if not result.data:
-         raise HTTPException(status_code=404, detail="Motion not found or update failed")
-    return result.data
-
 @app.delete("/motions/{motion_id}", status_code=204, tags=["Motion Cache"])
 async def delete_motion(motion_id: str):
     sb = get_supabase()
@@ -339,6 +338,14 @@ async def create_montage(montage: FinalMontageCreate):
 
     return final_montage_record
 
+@app.get("/montages", response_model=List[FinalMontage], tags=["Final Montages"])
+async def list_montage():
+    sb = get_supabase()
+    result = sb.table("final_montages").select("*").execute()
+    if not result.data:
+        raise HTTPException(status_code=404, detail="Montage not found")
+    return result.data
+
 @app.get("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
 async def get_montage(montage_id: str):
     sb = get_supabase()
@@ -347,7 +354,6 @@ async def get_montage(montage_id: str):
         raise HTTPException(status_code=404, detail="Montage not found")
     return result.data[0]
 
-
 @app.delete("/montages/{montage_id}", status_code=204, tags=["Final Montages"])
 async def delete_montage(montage_id: str):
     sb = get_supabase()
@@ -355,15 +361,6 @@ async def delete_montage(montage_id: str):
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found")
     return None
-
-@app.patch("/montages/{montage_id}", response_model=FinalMontage, tags=["Final Montages"])
-async def update_montage(montage_id: str, update: FinalMontageUpdate):
-    sb = get_supabase()
-    data = update.model_dump(exclude_unset=True, mode='json')
-    result = sb.table("final_montages").update(data).eq("id", montage_id).execute()
-    if not result.data:
-        raise HTTPException(status_code=404, detail="Montage not found or update failed")
-    return result.data[0]
 
 @app.post("/callback", tags=["Callbacks"])
 async def handle_callback(payload: dict = Body(...)):
@@ -410,3 +407,25 @@ async def handle_callback(payload: dict = Body(...)):
         sb.table("motion_cache").update(update_data).eq("external_job_id", task_id).execute()
 
     return JSONResponse({"status": "ok"})
+
+@app.get("/files/{filename}", tags=["Files"])
+async def get_file(filename: str):
+    client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=MINIO_SECURE
+    )
+    try:
+        # Check if object exists
+        # client.stat_object(MINIO_BUCKET_NAME, filename)
+        
+        response = client.get_object(MINIO_BUCKET_NAME, filename)
+        return StreamingResponse(
+            response, 
+            media_type="video/mp4",
+            headers={"Content-Disposition": f'inline; filename="{filename}"'}
+        )
+    except Exception as e:
+        logger.error(f"File not found: {e}")
+        raise HTTPException(status_code=404, detail="File not found")

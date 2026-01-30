@@ -62,6 +62,12 @@ services:
       - REDIS_URL=redis://redis:6379/0
       - PERSISTENT_DIR=/app/storage
       - MONTAGE_SERVICE_URL=http://montage-api:8000
+      - APP_BASE_URL=https://uniq.powercodeai.space
+      - MINIO_ENDPOINT=minio:9000
+      - MINIO_ACCESS_KEY=minioadmin
+      - MINIO_SECRET_KEY=minioadmin
+      - MINIO_BUCKET_NAME=videos
+      - MINIO_SECURE=False
     volumes:
       - ./avatar/app:/app
       - ./storage:/app/storage
@@ -87,6 +93,7 @@ services:
       - MINIO_BUCKET_NAME=videos
       - MINIO_SECURE=False
       - MINIO_EXTERNAL_URL=https://uniq.powercodeai.space/minio_storage
+      - APP_BASE_URL=https://uniq.powercodeai.space
     volumes:
       - ./avatar/app:/app
       - ./storage:/app/storage
