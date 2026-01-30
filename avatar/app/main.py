@@ -60,6 +60,7 @@ MINIO_SECURE = os.environ.get("MINIO_SECURE", "False").lower() == "true"
 KIE_API_KEY = os.environ.get("KIE_API_KEY")
 CALLBACK_BASE_URL = os.environ.get("CALLBACK_BASE_URL")
 MONTAGE_SERVICE_URL = os.environ.get("MONTAGE_SERVICE_URL", "http://montage-api:8000")
+APP_BASE_URL = os.environ.get("APP_BASE_URL")
 
 if not SUPABASE_URL or not SUPABASE_KEY:
     logger.warning("Supabase credentials not found. DB operations will fail.")
@@ -68,6 +69,37 @@ def get_supabase() -> Client:
     if not SUPABASE_URL or not SUPABASE_KEY:
         raise HTTPException(status_code=500, detail="Supabase not configured")
     return create_client(SUPABASE_URL, SUPABASE_KEY)
+
+def upload_file_to_minio(file_path: str, object_name: str, content_type: str) -> str:
+    client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=MINIO_SECURE
+    )
+    if not client.bucket_exists(MINIO_BUCKET_NAME):
+        client.make_bucket(MINIO_BUCKET_NAME)
+    
+    client.fput_object(MINIO_BUCKET_NAME, object_name, file_path, content_type=content_type)
+    
+    if APP_BASE_URL:
+        base = APP_BASE_URL.rstrip('/')
+        return f"{base}/avatar/files/{object_name}"
+        
+    return f"/avatar/files/{object_name}"
+
+def generate_thumbnail(video_path: str) -> str:
+    temp_thumb = tempfile.mktemp(suffix=".jpg")
+    try:
+        subprocess.check_call([
+            "ffmpeg", "-i", video_path, "-ss", "00:00:01", "-vframes", "1", 
+            "-q:v", "2", "-y", temp_thumb
+        ], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        if os.path.exists(temp_thumb):
+            return temp_thumb
+    except Exception as e:
+        logger.error(f"Thumbnail generation failed: {e}")
+    return None
 
 def set_initial_status(task_id: str):
     key = f"avatar_task:{task_id}"
@@ -82,10 +114,35 @@ def set_initial_status(task_id: str):
 
 # --- Avatars Endpoints ---
 @app.post("/avatars", response_model=Avatar, tags=["Avatars"])
-async def create_avatar(avatar: AvatarCreate):
+async def create_avatar(
+    file: UploadFile = File(...),
+    source_type: SourceType = Form(SourceType.UPLOAD),
+    generation_prompt: Optional[str] = Form(None)
+):
+    temp_file = tempfile.mktemp(suffix=os.path.splitext(file.filename)[1])
+    try:
+        with open(temp_file, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        # Check size (200MB)
+        if os.path.getsize(temp_file) > 200 * 1024 * 1024:
+            raise HTTPException(status_code=413, detail="File too large (max 200MB)")
+            
+        filename = f"avatar_{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
+        image_url = upload_file_to_minio(temp_file, filename, file.content_type)
+        
+    finally:
+        if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except: pass
+
     sb = get_supabase()
-    # Pydantic v2 use model_dump(mode='json') for serialization
-    data = avatar.model_dump(mode='json')
+    data = {
+        "image_url": image_url,
+        "source_type": source_type,
+        "generation_prompt": generation_prompt
+    }
     result = sb.table("avatars").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create avatar")
@@ -115,9 +172,45 @@ async def delete_avatar(avatar_id: str):
 
 # --- Reference Motions Endpoints ---
 @app.post("/references", response_model=ReferenceMotion, tags=["Reference Motions"])
-async def create_reference(ref: ReferenceMotionCreate):
+async def create_reference(
+    file: UploadFile = File(...),
+    label: Optional[str] = Form(None),
+    duration_seconds: float = Form(...)
+):
+    temp_file = tempfile.mktemp(suffix=os.path.splitext(file.filename)[1])
+    try:
+        with open(temp_file, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        if os.path.getsize(temp_file) > 200 * 1024 * 1024:
+             raise HTTPException(status_code=413, detail="File too large (max 200MB)")
+             
+        filename = f"ref_{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
+        video_url = upload_file_to_minio(temp_file, filename, file.content_type)
+        
+        # Thumbnail
+        thumb_path = generate_thumbnail(temp_file)
+        thumbnail_url = None
+        if thumb_path:
+            thumb_name = f"thumb_{filename}.jpg"
+            thumbnail_url = upload_file_to_minio(thumb_path, thumb_name, "image/jpeg")
+            try:
+                os.remove(thumb_path)
+            except: pass
+            
+    finally:
+         if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except: pass
+
     sb = get_supabase()
-    data = ref.model_dump(mode='json')
+    data = {
+        "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
+        "label": label,
+        "duration_seconds": duration_seconds
+    }
     result = sb.table("reference_motions").insert(data).execute()
     if not result.data:
         raise HTTPException(status_code=500, detail="Failed to create reference")
@@ -216,8 +309,44 @@ async def create_motion_cache(motion: MotionCacheCreate):
          # raise HTTPException(status_code=500, detail="KIE API Key missing")
          task_id = f"mock_{uuid.uuid4()}"
 
-    data = motion.model_dump(mode='json')
-    data["external_job_id"] = task_id
+    file: UploadFile = File(...),
+    title: Optional[str] = Form(None),
+    duration_seconds: float = Form(...)
+):
+    temp_file = tempfile.mktemp(suffix=os.path.splitext(file.filename)[1])
+    try:
+        with open(temp_file, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+            
+        if os.path.getsize(temp_file) > 200 * 1024 * 1024:
+             raise HTTPException(status_code=413, detail="File too large (max 200MB)")
+             
+        filename = f"bg_{uuid.uuid4()}{os.path.splitext(file.filename)[1]}"
+        video_url = upload_file_to_minio(temp_file, filename, file.content_type)
+        
+        # Thumbnail
+        thumb_path = generate_thumbnail(temp_file)
+        thumbnail_url = None
+        if thumb_path:
+            thumb_name = f"thumb_{filename}.jpg"
+            thumbnail_url = upload_file_to_minio(thumb_path, thumb_name, "image/jpeg")
+            try:
+                os.remove(thumb_path)
+            except: pass
+            
+    finally:
+         if os.path.exists(temp_file):
+            try:
+                os.remove(temp_file)
+            except: pass
+
+    sb = get_supabase()
+    data = {
+        "video_url": video_url,
+        "thumbnail_url": thumbnail_url,
+        "title": title,
+        "duration_seconds": duration_seconds
+    }
     data["status"] = "processing"
 
     result = sb.table("motion_cache").insert(data).execute()

@@ -105,6 +105,7 @@ class MotionCache(MotionCacheBase):
 # 5. Background Library
 class BackgroundVideoBase(BaseModel):
     video_url: str
+    thumbnail_url: Optional[str] = None
     title: Optional[str] = None
     duration_seconds: float
 
@@ -123,6 +124,7 @@ class FinalMontageBase(BaseModel):
     motion_id: uuid.UUID
     bg_video_id: uuid.UUID
     final_video_url: Optional[str] = None
+    final_thumbnail_url: Optional[str] = None
     status: MontageStatus = MontageStatus.RENDERING
     settings: Dict[str, Any] = {}
 
