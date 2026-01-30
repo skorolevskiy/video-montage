@@ -25,7 +25,7 @@ from models import (
 )
 from tasks import generate_avatar_task, monitor_montage_task
 from supabase import create_client, Client
-from typing import Final, List
+from typing import Final, List, Optional
 
 app = FastAPI(
     title="Avatar Generation API",
