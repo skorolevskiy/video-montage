@@ -4,7 +4,8 @@ from fastapi.middleware.cors import CORSMiddleware
 import logging
 import traceback
 import uuid
-from datetime import datetime
+from datetime import datetime, timedelta
+from urllib.parse import urlparse
 import os
 import json
 import redis
@@ -411,11 +412,30 @@ async def handle_callback(payload: dict = Body(...)):
 @app.get("/files/{filename}", tags=["Files"])
 async def get_file(filename: str):
     # Use X-Accel-Redirect to let Nginx serve the file from MinIO directly
-    # This avoids passing large files through Python
     
-    # Path must match the internal location in Nginx
-    # /files_internal/{bucket_name}/{filename}
-    redirect_url = f"/files_internal/{MINIO_BUCKET_NAME}/{filename}"
+    client = Minio(
+        MINIO_ENDPOINT,
+        access_key=MINIO_ACCESS_KEY,
+        secret_key=MINIO_SECRET_KEY,
+        secure=MINIO_SECURE
+    )
+    
+    # Generate presigned URL to allow Nginx to access private bucket
+    presigned_url = client.get_presigned_url(
+        "GET", 
+        MINIO_BUCKET_NAME, 
+        filename, 
+        expires=timedelta(hours=1)
+    )
+    
+    # Extract path and query from the presigned URL
+    # URL is like http://minio:9000/vectors/filename.mp4?Algorithm=...
+    parsed = urlparse(presigned_url)
+    
+    # Map to internal Nginx location
+    # parsed.path -> /videos/filename.mp4
+    # Result -> /files_internal/videos/filename.mp4?query_params
+    redirect_url = f"/files_internal{parsed.path}?{parsed.query}"
     
     return Response(
         headers={
