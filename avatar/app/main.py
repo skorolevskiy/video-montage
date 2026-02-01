@@ -31,7 +31,7 @@ app.include_router(backgrounds.router, prefix="/backgrounds", tags=["Background 
 app.include_router(montages.router, prefix="/montages", tags=["Final Montages"])
 app.include_router(files.router, prefix="/files", tags=["Files"])
 app.include_router(callbacks.router, prefix="/callback", tags=["Callbacks"])
-app.include_router(admin.router, prefix="/admin", tags=["Admin"])
+#app.include_router(admin.router, prefix="/admin", tags=["Admin"])
 
 @app.get("/health")
 async def health_check():

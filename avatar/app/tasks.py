@@ -4,11 +4,14 @@ import json
 import redis
 import requests
 import io
+import tempfile
+import uuid
 from datetime import datetime, timedelta
 from celery_worker import celery_app
 from models import VideoStatus
 from supabase import create_client
 from minio import Minio
+from services.video import generate_thumbnail
 
 redis_url = os.environ.get("REDIS_URL", "redis://redis:6379/0")
 redis_client = redis.Redis.from_url(redis_url, decode_responses=True)
@@ -33,7 +36,7 @@ def get_supabase():
         return None
     return create_client(SUPABASE_URL, SUPABASE_KEY)
 
-def upload_to_minio(file_content, object_name):
+def upload_to_minio(file_content, object_name, content_type="video/mp4"):
     client = Minio(
         MINIO_ENDPOINT,
         access_key=MINIO_ACCESS_KEY,
@@ -46,7 +49,7 @@ def upload_to_minio(file_content, object_name):
     # Put object
     data_stream = io.BytesIO(file_content)
     length = len(file_content)
-    client.put_object(MINIO_BUCKET_NAME, object_name, data_stream, length, content_type="video/mp4")
+    client.put_object(MINIO_BUCKET_NAME, object_name, data_stream, length, content_type=content_type)
     
     # If we have APP_BASE_URL, return the proxy URL
     if APP_BASE_URL:
@@ -110,10 +113,33 @@ def monitor_montage_task(montage_id: str, video_id: str):
                         filename = f"final_montage_{montage_id}.mp4"
                         final_url = upload_to_minio(file_content, filename)
                         
+                        # Generate Thumbnail
+                        final_thumbnail_url = None
+                        try:
+                            temp_video = tempfile.mktemp(suffix=".mp4")
+                            with open(temp_video, "wb") as f:
+                                f.write(file_content)
+                                
+                            thumb_path = generate_thumbnail(temp_video)
+                            if thumb_path:
+                                thumb_filename = f"thumb_montage_{montage_id}.jpg"
+                                with open(thumb_path, "rb") as tf:
+                                    thumb_content = tf.read()
+                                    final_thumbnail_url = upload_to_minio(thumb_content, thumb_filename, content_type="image/jpeg")
+                                try: os.remove(thumb_path)
+                                except: pass
+                                
+                            if os.path.exists(temp_video):
+                                try: os.remove(temp_video)
+                                except: pass
+                        except Exception as e:
+                            print(f"Failed to generate thumbnail for montage {montage_id}: {e}")
+                        
                         # Update DB
                         sb.table("final_montages").update({
                             "status": "ready",
-                            "final_video_url": final_url
+                            "final_video_url": final_url,
+                            "final_thumbnail_url": final_thumbnail_url
                         }).eq("id", montage_id).execute()
                         
                         return "success"
