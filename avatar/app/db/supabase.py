@@ -1,6 +1,6 @@
 from fastapi import HTTPException
 from supabase import create_client, Client
-from ..core.config import settings
+from core.config import settings
 
 def get_supabase() -> Client:
     if not settings.SUPABASE_URL or not settings.SUPABASE_KEY:

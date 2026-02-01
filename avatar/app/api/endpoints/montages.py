@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
-from ...models import FinalMontage, FinalMontageCreate
-from ...db.supabase import get_supabase
-from ...services.montage_service import request_montage_creation
+from models import FinalMontage, FinalMontageCreate
+from db.supabase import get_supabase
+from services.montage_service import request_montage_creation
 
 router = APIRouter()
 

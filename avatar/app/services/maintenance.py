@@ -3,10 +3,10 @@ import aiohttp
 import tempfile
 import uuid
 import logging
-from ..db.supabase import get_supabase
-from ..services.storage import get_minio_client, upload_file_to_minio
-from ..services.video import generate_thumbnail
-from ..core.config import settings
+from db.supabase import get_supabase
+from services.storage import get_minio_client, upload_file_to_minio
+from services.video import generate_thumbnail
+from core.config import settings
 
 logger = logging.getLogger(__name__)
 

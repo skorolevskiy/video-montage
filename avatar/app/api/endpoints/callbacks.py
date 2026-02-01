@@ -2,7 +2,7 @@ from fastapi import APIRouter, Body, Response
 from fastapi.responses import JSONResponse
 import logging
 import json
-from ...db.supabase import get_supabase
+from db.supabase import get_supabase
 
 router = APIRouter()
 logger = logging.getLogger(__name__)

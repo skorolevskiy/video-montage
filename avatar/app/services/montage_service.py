@@ -1,7 +1,7 @@
 import aiohttp
 import logging
-from ..core.config import settings
-from ..tasks import monitor_montage_task
+from core.config import settings
+from tasks import monitor_montage_task
 from supabase import Client
 
 logger = logging.getLogger(__name__)

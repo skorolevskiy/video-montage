@@ -4,10 +4,10 @@ import tempfile
 import shutil
 import os
 import uuid
-from ...models import BackgroundVideo
-from ...db.supabase import get_supabase
-from ...services.storage import upload_file_to_minio
-from ...services.video import get_video_duration, generate_thumbnail
+from models import BackgroundVideo
+from db.supabase import get_supabase
+from services.storage import upload_file_to_minio
+from services.video import get_video_duration, generate_thumbnail
 
 router = APIRouter()
 

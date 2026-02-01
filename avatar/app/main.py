@@ -2,8 +2,8 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import logging
 
-from .core.config import settings
-from .api.endpoints import avatars, references, motions, backgrounds, montages, files, callbacks, admin
+from core.config import settings
+from api.endpoints import avatars, references, motions, backgrounds, montages, files, callbacks, admin
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

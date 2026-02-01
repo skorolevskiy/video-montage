@@ -1,8 +1,8 @@
 from fastapi import APIRouter, HTTPException
 from typing import List
-from ...models import MotionCache, MotionCacheCreate
-from ...db.supabase import get_supabase
-from ...services.motion_service import request_motion_generation
+from models import MotionCache, MotionCacheCreate
+from db.supabase import get_supabase
+from services.motion_service import request_motion_generation
 
 router = APIRouter()
 

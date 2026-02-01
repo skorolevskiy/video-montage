@@ -1,8 +1,8 @@
 import redis
 import json
 from datetime import datetime
-from ..core.config import settings
-from ..models import VideoStatus
+from core.config import settings
+from models import VideoStatus
 
 redis_client = redis.Redis.from_url(settings.REDIS_URL, decode_responses=True)
 

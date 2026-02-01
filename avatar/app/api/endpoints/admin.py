@@ -1,5 +1,5 @@
 from fastapi import APIRouter, BackgroundTasks
-from ...services.maintenance import process_missing_thumbnails_task
+from services.maintenance import process_missing_thumbnails_task
 
 router = APIRouter()
 

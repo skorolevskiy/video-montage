@@ -1,5 +1,5 @@
 from minio import Minio
-from ..core.config import settings
+from core.config import settings
 from typing import Optional
 
 def get_minio_client() -> Minio:

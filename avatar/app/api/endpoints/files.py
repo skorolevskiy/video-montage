@@ -1,8 +1,8 @@
 from fastapi import APIRouter, Response
 from urllib.parse import urlparse
 from datetime import timedelta
-from ...services.storage import get_minio_client
-from ...core.config import settings
+from services.storage import get_minio_client
+from core.config import settings
 
 router = APIRouter()
 

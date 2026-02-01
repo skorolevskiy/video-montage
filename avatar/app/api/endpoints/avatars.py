@@ -4,9 +4,9 @@ import tempfile
 import shutil
 import os
 import uuid
-from ...models import Avatar, SourceType
-from ...db.supabase import get_supabase
-from ...services.storage import upload_file_to_minio
+from models import Avatar, SourceType
+from db.supabase import get_supabase
+from services.storage import upload_file_to_minio
 
 router = APIRouter()
 
