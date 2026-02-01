@@ -81,6 +81,7 @@ class MotionCacheBase(BaseModel):
     avatar_id: uuid.UUID
     reference_id: uuid.UUID
     motion_video_url: Optional[str] = None
+    motion_thumbnail_url: Optional[str] = None
     status: JobStatus = JobStatus.PENDING
     external_job_id: Optional[str] = None
     error_log: Optional[str] = None
@@ -91,6 +92,7 @@ class MotionCacheCreate(BaseModel):
 
 class MotionCacheUpdate(BaseModel):
     motion_video_url: Optional[str] = None
+    motion_thumbnail_url: Optional[str] = None
     status: Optional[JobStatus] = None
     external_job_id: Optional[str] = None
     error_log: Optional[str] = None
