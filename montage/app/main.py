@@ -167,7 +167,7 @@ async def merge_videos(
             if file_ext not in SUPPORTED_AUDIO_FORMATS:
                 raise HTTPException(status_code=400, detail="Unsupported audio format")
 
-        # Generate unique ID for this task
+        # Generate reactionue ID for this task
         video_id = str(uuid.uuid4())
 
         # Create VideoMergeRequest for processing (internal model)

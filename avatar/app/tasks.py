@@ -53,7 +53,7 @@ def upload_to_minio(file_content, object_name, content_type="video/mp4"):
     
     # If we have APP_BASE_URL, return the proxy URL
     if APP_BASE_URL:
-        # e.g. https://uniq.powercodeai.space/avatar/files/myvideo.mp4
+        # e.g. https://reaction.powercodeai.space/avatar/files/myvideo.mp4
         # Remove trailing slash from base if present
         base = APP_BASE_URL.rstrip('/')
         return f"{base}/avatar/files/{object_name}"
