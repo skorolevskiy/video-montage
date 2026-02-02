@@ -255,13 +255,36 @@ async def delete_video_task(video_id: str):
     # Note: We probably should delete from MinIO too, but keeping it simple for now
     return {"message": "Video task deleted"}
 
+def sanitize_filename(filename: str) -> str:
+    """Simple transliteration and cleanup for filenames"""
+    translit_map = {
+        'а': 'a', 'б': 'b', 'в': 'v', 'г': 'g', 'д': 'd', 'e': 'e', 'ё': 'yo',
+        'ж': 'zh', 'з': 'z', 'и': 'i', 'й': 'y', 'к': 'k', 'л': 'l', 'м': 'm',
+        'н': 'n', 'о': 'o', 'п': 'p', 'р': 'r', 'с': 's', 'т': 't', 'у': 'u',
+        'ф': 'f', 'х': 'kh', 'ц': 'ts', 'ч': 'ch', 'ш': 'sh', 'щ': 'shch',
+        'ъ': '', 'ы': 'y', 'ь': '', 'э': 'e', 'ю': 'yu', 'я': 'ya',
+        'А': 'A', 'Б': 'B', 'В': 'V', 'Г': 'G', 'Д': 'D', 'Е': 'E', 'Ё': 'Yo',
+        'Ж': 'Zh', 'З': 'Z', 'И': 'I', 'Й': 'Y', 'К': 'K', 'Л': 'L', 'М': 'M',
+        'Н': 'N', 'О': 'O', 'П': 'P', 'Р': 'R', 'С': 'S', 'Т': 'T', 'У': 'U',
+        'Ф': 'F', 'Х': 'Kh', 'Ц': 'Ts', 'Ч': 'Ch', 'Ш': 'Sh', 'Щ': 'Shch',
+        'Ъ': '', 'Ы': 'Y', 'Ь': '', 'Э': 'E', 'Ю': 'Yu', 'Я': 'Ya',
+        'є': 'ye', 'і': 'i', 'ї': 'yi', 'ґ': 'g',
+        'Є': 'Ye', 'І': 'I', 'Ї': 'Yi', 'Ґ': 'G'
+    }
+    
+    result = []
+    for char in filename:
+        result.append(translit_map.get(char, char))
+    
+    return "".join(result).replace(" ", "_")
+
 @app.post("/upload")
 async def upload_file(file: UploadFile = File(...)):
     """Upload a file to the uploads bucket"""
     storage = StorageManager()
     
-    # Use original filename
-    filename = file.filename
+    # Use sanitized filename (transliterate + underscores)
+    filename = sanitize_filename(file.filename)
     
     try:
         # Get file size
