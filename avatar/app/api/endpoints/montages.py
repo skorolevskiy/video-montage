@@ -42,7 +42,7 @@ async def create_montage(montage: FinalMontageCreate):
 @router.get("", response_model=List[FinalMontage])
 async def list_montage():
     sb = get_supabase()
-    result = sb.table("final_montages").select("*").execute()
+    result = sb.table("final_montages").select("*").order("created_at", desc=True).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Montage not found")
     return result.data

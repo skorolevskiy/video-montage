@@ -61,7 +61,7 @@ async def create_reference(
 @router.get("", response_model=List[ReferenceMotion])
 async def list_references():
     sb = get_supabase()
-    result = sb.table("reference_motions").select("*").execute()
+    result = sb.table("reference_motions").select("*").order("created_at", desc=True).execute()
     return result.data
 
 @router.delete("/{reference_id}", status_code=204)

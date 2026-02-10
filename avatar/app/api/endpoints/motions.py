@@ -46,7 +46,7 @@ async def create_motion_cache(motion: MotionCacheCreate):
 @router.get("", response_model=List[MotionCache])
 async def list_motion():
     sb = get_supabase()
-    result = sb.table("motion_cache").select("*").execute()
+    result = sb.table("motion_cache").select("*").order("created_at", desc=True).execute()
     if not result.data:
         raise HTTPException(status_code=404, detail="Motions not found")
     return result.data

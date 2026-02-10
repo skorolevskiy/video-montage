@@ -56,7 +56,7 @@ async def get_avatar(avatar_id: str):
 @router.get("", response_model=List[Avatar])
 async def list_avatars():
     sb = get_supabase()
-    result = sb.table("avatars").select("*").execute()
+    result = sb.table("avatars").select("*").order("created_at", desc=True).execute()
     return result.data
 
 @router.delete("/{avatar_id}", status_code=204)

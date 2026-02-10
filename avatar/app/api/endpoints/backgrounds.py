@@ -61,7 +61,7 @@ async def create_background(
 @router.get("", response_model=List[BackgroundVideo])
 async def list_backgrounds():
     sb = get_supabase()
-    result = sb.table("background_library").select("*").execute()
+    result = sb.table("background_library").select("*").order("created_at", desc=True).execute()
     return result.data
 
 @router.delete("/{bg_id}", status_code=204)
