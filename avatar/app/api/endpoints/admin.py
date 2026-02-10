@@ -30,18 +30,11 @@ async def check_balance():
                     logger.error(f"KIE API Error: {resp.status} - {error_text}")
                     raise HTTPException(status_code=resp.status, detail="Failed to fetch credit balance")
                 
-                data = await resp.json()
-                # Assuming the response contains "credit" or similar field. 
-                # If structure is unknown, we try to interpret 'credit' key.
-                # Adjust key access based on actual API response if known, otherwise default to 'credit'.
-                credits = data.get("credit")
-                
-                if credits is None:
-                     # Try finding it if nested or named differently
-                     credits = data.get("balance") or data.get("credits")
+                response_data = await resp.json()
+                credits = response_data.get("data")
 
                 if credits is None:
-                     return {"error": "Could not find credit field in response", "raw": data}
+                     return {"error": "Could not find 'data' field with credits in response", "raw": response_data}
                 
                 # 1 sec = 6 credits
                 seconds_left = float(credits) / 6.0
