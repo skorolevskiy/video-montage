@@ -8,7 +8,7 @@ import aiofiles
 import aiohttp
 from typing import List, Dict, Optional, Any
 from fastapi import HTTPException
-from models import SubtitleStyle, SubtitleItem
+from models import SubtitleStyle, SubtitleItem, CirclePosition, OverlayPosition
 
 class VideoProcessor:
     def __init__(self, work_dir: str = None):
@@ -425,6 +425,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
         circle_video_url: str,
         background_volume: float = 1.0,
         circle_volume: float = 1.0,
+        circle_position: str = "bottom_right",
         output_filename: str = "circle_video.mp4",
         progress_callback: Optional[callable] = None
     ) -> str:
@@ -457,6 +458,17 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             has_circle_audio = circle_info.get('has_audio', False)
             has_bg_audio = bg_info.get('has_audio', False)
 
+            # Determine position
+            margin = 20
+            if circle_position == CirclePosition.BOTTOM_LEFT:
+                overlay_coords = f"x={margin}:y=H-h-{margin}"
+            elif circle_position == CirclePosition.TOP_RIGHT:
+                overlay_coords = f"x=W-w-{margin}:y={margin}"
+            elif circle_position == CirclePosition.TOP_LEFT:
+                overlay_coords = f"x={margin}:y={margin}"
+            else: # BOTTOM_RIGHT (default)
+                overlay_coords = f"x=W-w-{margin}:y=H-h-{margin}"
+
             # 2. Construct FFmpeg command
             output_path = os.path.join(self.work_dir, output_filename)
             
@@ -469,7 +481,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             filter_complex = (
                 f"[1:v][0:v]scale2ref=w=iw*0.8:h=iw*0.8[over][bg];"
                 f"[over]format=yuva420p,geq=lum='p(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'[circular];"
-                f"[bg][circular]overlay=x=W-w-20:y=H-h-20[v]"
+                f"[bg][circular]overlay={overlay_coords}[v]"
             )
 
             cmd = [
@@ -502,6 +514,109 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
                 '-c:v', 'libx264',
                 '-preset', 'fast',
                 '-t', str(duration),
+                output_path,
+                '-y'
+            ])
+            
+            print(f"DEBUG: Running FFmpeg command: {' '.join(cmd)}")
+            result = await self._run_command(cmd)
+            
+            if result.returncode != 0:
+                print(f"DEBUG: FFmpeg stderr: {result.stderr}")
+                raise HTTPException(status_code=500, detail=f"FFmpeg conversion failed: {result.stderr}")
+
+            if progress_callback:
+                await progress_callback(100.0)
+                
+            return output_path
+
+        except Exception as e:
+            raise HTTPException(status_code=500, detail=f"Error processing video: {str(e)}")
+
+    async def process_overlay_video(
+        self,
+        background_video_url: str,
+        overlay_video_url: str,
+        background_volume: float = 1.0,
+        overlay_volume: float = 1.0,
+        position: OverlayPosition = OverlayPosition.BOTTOM,
+        output_filename: str = "overlay_video.mp4",
+        progress_callback: Optional[callable] = None
+    ) -> str:
+        """Processes video with a rectangular overlay"""
+        try:
+            if progress_callback:
+                await progress_callback(5.0)
+
+            # 1. Download videos
+            bg_video_path = os.path.join(self.work_dir, "background.mp4")
+            overlay_video_path = os.path.join(self.work_dir, "overlay.mp4")
+            
+            if not await self.download_video(background_video_url, bg_video_path):
+                 raise HTTPException(status_code=400, detail="Failed to download background video")
+            
+            if progress_callback:
+                await progress_callback(15.0)
+
+            if not await self.download_video(overlay_video_url, overlay_video_path):
+                 raise HTTPException(status_code=400, detail="Failed to download overlay video")
+
+            if progress_callback:
+                await progress_callback(30.0)
+
+            # Get info for videos
+            overlay_info = await self.get_video_info(overlay_video_path)
+            bg_info = await self.get_video_info(bg_video_path)
+            
+            duration = overlay_info.get('duration', 0) # Use overlay duration by default? Actually, prob bg or first. Circle used circle duration. Let's use overlay duration.
+            overlay_duration = overlay_info.get('duration', 0)
+            
+            has_overlay_audio = overlay_info.get('has_audio', False)
+            has_bg_audio = bg_info.get('has_audio', False)
+
+            # 2. Construct FFmpeg command
+            output_path = os.path.join(self.work_dir, output_filename)
+            
+            # [1:v][0:v]scale2ref=w=iw:h=-1[over][bg] -> Scale overlay to bg width, maintain aspect ratio
+            # Determine y position
+            y_pos = "0" if position == OverlayPosition.TOP else "H-h"
+            
+            # Complex filter
+            filter_complex = (
+                f"[1:v][0:v]scale2ref=w=iw:h=-1[over][bg];"
+                f"[bg][over]overlay=x=0:y={y_pos}[v]"
+            )
+
+            cmd = [
+                self.ffmpeg_path,
+                '-i', bg_video_path,
+                '-i', overlay_video_path
+            ]
+            
+            map_audio = False
+            if has_bg_audio and has_overlay_audio:
+                filter_complex += (
+                    f";[0:a]volume={background_volume}[a0];"
+                    f"[1:a]volume={overlay_volume}[a1];"
+                    f"[a0][a1]amix=inputs=2:duration=first[a]"
+                )
+                map_audio = True
+            elif has_bg_audio:
+                filter_complex += f";[0:a]volume={background_volume}[a]"
+                map_audio = True
+            elif has_overlay_audio:
+                filter_complex += f";[1:a]volume={overlay_volume}[a]"
+                map_audio = True
+
+            cmd.extend(['-filter_complex', filter_complex, '-map', '[v]'])
+            
+            if map_audio:
+                cmd.extend(['-map', '[a]', '-c:a', 'aac'])
+
+            cmd.extend([
+                '-c:v', 'libx264',
+                '-preset', 'fast',
+                '-t', str(overlay_duration),
                 output_path,
                 '-y'
             ])

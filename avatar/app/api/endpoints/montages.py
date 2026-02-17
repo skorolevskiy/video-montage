@@ -33,9 +33,14 @@ async def create_montage(montage: FinalMontageCreate):
     
     final_montage_record = result.data[0]
     montage_id = final_montage_record["id"]
+    
+    # Extract settings
+    settings_data = montage.settings or {}
+    format_type = settings_data.get("format", "circle")
+    position = settings_data.get("position", settings_data.get("circle_position", "bottom_right"))
 
     # 4. Service Call
-    await request_montage_creation(sb, str(montage_id), bg_url, motion_url)
+    await request_montage_creation(sb, str(montage_id), bg_url, motion_url, format_type, position)
 
     return final_montage_record
 

@@ -8,6 +8,16 @@ class VideoStatus(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
 
+class CirclePosition(str, Enum):
+    TOP_RIGHT = "top_right"
+    TOP_LEFT = "top_left"
+    BOTTOM_RIGHT = "bottom_right"
+    BOTTOM_LEFT = "bottom_left"
+
+class OverlayPosition(str, Enum):
+    TOP = "top"
+    BOTTOM = "bottom"
+
 class SubtitleItem(BaseModel):
     start: float
     end: float
@@ -32,8 +42,16 @@ class VideoMergeRequest(BaseModel):
 class VideoCircleRequest(BaseModel):
     video_background_url: str
     video_circle_url: str
+    backgroOverlayRequest(BaseModel):
+    video_background_url: str
+    video_overlay_url: str
     background_volume: float = 1.0
+    overlay_volume: float = 1.0
+    position: OverlayPosition = OverlayPosition.BOTTOM
+
+class Videound_volume: float = 1.0
     circle_volume: float = 1.0
+    circle_position: CirclePosition = CirclePosition.BOTTOM_RIGHT
 
 class VideoInfoResponse(BaseModel):
     duration: float

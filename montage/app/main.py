@@ -21,11 +21,11 @@ from collections import OrderedDict
 from models import (
     VideoMergeRequest, VideoInfoResponse, HealthResponse, 
     SubtitleStyle, SubtitleItem, VideoStatus, 
-    VideoStatusResponse, VideoMergeResponse, VideoCircleRequest
+    VideoStatusResponse, VideoMergeResponse, VideoCircleRequest, VideoOverlayRequest
 )
 from video_processor import VideoProcessor
 from storage import StorageManager
-from tasks import process_video_task, process_circle_video_task
+from tasks import process_video_task, process_circle_video_task, process_overlay_video_task
 
 app = FastAPI(
     title="Video Processing API",
@@ -105,6 +105,23 @@ async def create_connected_video(
     
     # Start processing via Celery
     process_circle_video_task.delay(video_id, request.model_dump())
+    
+    return VideoStatusResponse(**data)
+
+@app.post("/video-overlay", response_model=VideoStatusResponse)
+async def create_overlay_video(
+    request: VideoOverlayRequest = Body(...)
+):
+    """
+    Creates a new video request with rectangular overlay
+    """
+    video_id = str(uuid.uuid4())
+    
+    # Store initial status
+    data = set_initial_status(video_id)
+    
+    # Start processing via Celery
+    process_overlay_video_task.delay(video_id, request.model_dump())
     
     return VideoStatusResponse(**data)
 
