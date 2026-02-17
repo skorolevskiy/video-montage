@@ -582,8 +582,29 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             y_pos = "0" if position == OverlayPosition.TOP else "H-h"
             
             # Complex filter
+            # 1. Scale overlay to match background width exactly, maintaining aspect ratio implies height might be != width
+            # But the requirement is "square" (1:1) covering full width. 
+            # So we need to crop the overlay to be square first, then scale it to width?
+            # Or scale to width, then crop to height=width?
+            
+            # Strategy:
+            # - Scale overlay so that its width matches background width (iw). 
+            #   If we use scale2ref=w=iw:h=-1, we preserve aspect ratio. 
+            #   If original was 9:16, it becomes full screen. We don't want that.
+            #   We want the result to be 1:1 aspect ratio with width = background width.
+            
+            # Better approach:
+            # Force overlay to be square first (crop to 1:1). 
+            # Then scale to background width.
+            
+            # Filter steps:
+            # [1:v]crop='min(iw,ih)':'min(iw,ih)',scale=w=-1:h=-1[sq]; -> Crop to square central part
+            # [sq][0:v]scale2ref=w=iw:h=iw[over][bg]; -> Scale square overlay to fit bg width (and since it's square, height=width)
+            # [bg][over]overlay...
+            
             filter_complex = (
-                f"[1:v][0:v]scale2ref=w=iw:h=-1[over][bg];"
+                f"[1:v]crop='min(iw,ih)':'min(iw,ih)',scale=w=-1:h=-1[sq];"
+                f"[sq][0:v]scale2ref=w=iw:h=iw[over][bg];"
                 f"[bg][over]overlay=x=0:y={y_pos}[v]"
             )
 
