@@ -42,16 +42,16 @@ class VideoMergeRequest(BaseModel):
 class VideoCircleRequest(BaseModel):
     video_background_url: str
     video_circle_url: str
-    backgroOverlayRequest(BaseModel):
+    background_volume: float = 1.0
+    circle_volume: float = 1.0
+    circle_position: CirclePosition = CirclePosition.BOTTOM_RIGHT
+
+class VideoOverlayRequest(BaseModel):
     video_background_url: str
     video_overlay_url: str
     background_volume: float = 1.0
     overlay_volume: float = 1.0
     position: OverlayPosition = OverlayPosition.BOTTOM
-
-class Videound_volume: float = 1.0
-    circle_volume: float = 1.0
-    circle_position: CirclePosition = CirclePosition.BOTTOM_RIGHT
 
 class VideoInfoResponse(BaseModel):
     duration: float
