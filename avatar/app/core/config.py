@@ -29,4 +29,8 @@ class Settings:
     MONTAGE_SERVICE_URL: str = os.environ.get("MONTAGE_SERVICE_URL", "http://montage-api:8000")
     APP_BASE_URL: Optional[str] = os.environ.get("APP_BASE_URL")
 
+    # Telegram
+    TELEGRAM_BOT_TOKEN: Optional[str] = os.environ.get("TELEGRAM_BOT_TOKEN")
+    TELEGRAM_CHANNEL_ID: str = os.environ.get("TELEGRAM_CHANNEL_ID", "-1003358304861")
+
 settings = Settings()

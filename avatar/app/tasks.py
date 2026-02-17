@@ -7,6 +7,7 @@ import io
 import tempfile
 import uuid
 from datetime import datetime, timedelta
+from core.config import settings
 from celery_worker import celery_app
 from models import VideoStatus
 from supabase import create_client
@@ -74,6 +75,35 @@ def upload_to_minio(file_content, object_name, content_type="video/mp4"):
         
     return url
 
+def send_telegram_video(video_content, montage_id):
+    bot_token = settings.TELEGRAM_BOT_TOKEN
+    chat_id = settings.TELEGRAM_CHANNEL_ID
+    
+    if not bot_token:
+        # print("Telegram bot token not configured")
+        return
+        
+    url = f"https://api.telegram.org/bot{bot_token}/sendVideo"
+    
+    try:
+        files = {
+            'video': (f'montage_{montage_id}.mp4', video_content, 'video/mp4')
+        }
+        data = {
+            'chat_id': chat_id,
+            'caption': f'Montage {montage_id} Ready'
+        }
+        
+        response = requests.post(url, files=files, data=data)
+        
+        if response.status_code != 200:
+            print(f"Failed to send video to Telegram: {response.text}")
+        else:
+            print(f"Successfully sent video {montage_id} to Telegram")
+            
+    except Exception as e:
+        print(f"Error sending video to Telegram: {e}")
+
 def update_status(task_id: str, data: dict):
     key = f"avatar_task:{task_id}"
     current = redis_client.get(key)
@@ -134,6 +164,11 @@ def monitor_montage_task(montage_id: str, video_id: str):
                                 except: pass
                         except Exception as e:
                             print(f"Failed to generate thumbnail for montage {montage_id}: {e}")
+                        
+                        try:
+                            send_telegram_video(file_content, montage_id)
+                        except Exception as e:
+                            print(f"Telegram send failed: {e}")
                         
                         # Update DB
                         sb.table("final_montages").update({

@@ -47,7 +47,6 @@ class AvatarStatusResponse(BaseModel):
 class AvatarBase(BaseModel):
     image_url: str
     source_type: SourceType = SourceType.UPLOAD
-    generation_prompt: Optional[str] = None
 
 class AvatarCreate(AvatarBase):
     pass
