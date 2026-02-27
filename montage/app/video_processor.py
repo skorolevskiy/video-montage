@@ -514,7 +514,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cmd.extend([
                 '-c:v', 'libx264',
                 '-preset', 'fast',
-                '-t', str(bg_duration),
+                '-t', str(duration),
                 output_path,
                 '-y'
             ])
@@ -639,7 +639,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cmd.extend([
                 '-c:v', 'libx264',
                 '-preset', 'fast',
-                '-t', str(bg_duration),
+                '-t', str(overlay_duration),
                 output_path,
                 '-y'
             ])
