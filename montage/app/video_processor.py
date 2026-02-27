@@ -454,6 +454,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             circle_info = await self.get_video_info(circle_video_path)
             bg_info = await self.get_video_info(bg_video_path)
             
+            bg_duration = bg_info.get('duration', 0)
             duration = circle_info.get('duration', 0)
             has_circle_audio = circle_info.get('has_audio', False)
             has_bg_audio = bg_info.get('has_audio', False)
@@ -475,13 +476,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Filter complex explanation:
             # [1:v][0:v]scale2ref=w=iw*0.8:h=iw*0.8[over][bg] -> Scale overlay to 80% of bg width, force square (1:1)
             # [over]format=yuva420p,geq=...[circular] -> Create circular mask
-            # [bg][circular]overlay=x=W-w-20:y=H-h-20[v] -> Overlay at bottom right
+            # [bg][circular]overlay=x=W-w-20:y=H-h-20:eof_action=pass[v] -> Overlay at bottom right, handle end of file gracefully
             # Audio mixing
             
             filter_complex = (
                 f"[1:v][0:v]scale2ref=w=iw*0.8:h=iw*0.8[over][bg];"
                 f"[over]format=yuva420p,geq=lum='p(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'[circular];"
-                f"[bg][circular]overlay={overlay_coords}[v]"
+                f"[bg][circular]overlay={overlay_coords}:eof_action=pass[v]"
             )
 
             cmd = [
@@ -513,7 +514,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cmd.extend([
                 '-c:v', 'libx264',
                 '-preset', 'fast',
-                '-t', str(duration),
+                '-t', str(bg_duration),
                 output_path,
                 '-y'
             ])
@@ -568,6 +569,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             overlay_info = await self.get_video_info(overlay_video_path)
             bg_info = await self.get_video_info(bg_video_path)
             
+            bg_duration = bg_info.get('duration', 0)
             duration = overlay_info.get('duration', 0) # Use overlay duration by default? Actually, prob bg or first. Circle used circle duration. Let's use overlay duration.
             overlay_duration = overlay_info.get('duration', 0)
             
@@ -600,12 +602,12 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             # Filter steps:
             # [1:v]crop='min(iw,ih)':'min(iw,ih)',scale=w=-1:h=-1[sq]; -> Crop to square central part
             # [sq][0:v]scale2ref=w=iw:h=iw[over][bg]; -> Scale square overlay to fit bg width (and since it's square, height=width)
-            # [bg][over]overlay...
+            # [bg][over]overlay... (added eof_action=pass so background continues playing when overlay stream ends)
             
             filter_complex = (
                 f"[1:v]crop='min(iw,ih)':'min(iw,ih)',scale=w=-1:h=-1[sq];"
                 f"[sq][0:v]scale2ref=w=iw:h=iw[over][bg];"
-                f"[bg][over]overlay=x=0:y={y_pos}[v]"
+                f"[bg][over]overlay=x=0:y={y_pos}:eof_action=pass[v]"
             )
 
             cmd = [
@@ -637,7 +639,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             cmd.extend([
                 '-c:v', 'libx264',
                 '-preset', 'fast',
-                '-t', str(overlay_duration),
+                '-t', str(bg_duration),
                 output_path,
                 '-y'
             ])
