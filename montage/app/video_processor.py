@@ -482,7 +482,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             filter_complex = (
                 f"[1:v][0:v]scale2ref=w=iw*0.8:h=iw*0.8[over][bg];"
                 f"[over]format=yuva420p,geq=lum='p(X,Y)':a='if(lte(pow(X-W/2,2)+pow(Y-H/2,2),pow(min(W,H)/2,2)),255,0)'[circular];"
-                f"[bg][circular]overlay={overlay_coords}:eof_action=pass[v]"
+                f"[bg][circular]overlay={overlay_coords}:eof_action=repeat[v]"
             )
 
             cmd = [
@@ -607,7 +607,7 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
             filter_complex = (
                 f"[1:v]crop='min(iw,ih)':'min(iw,ih)',scale=w=-1:h=-1[sq];"
                 f"[sq][0:v]scale2ref=w=iw:h=iw[over][bg];"
-                f"[bg][over]overlay=x=0:y={y_pos}:eof_action=pass[v]"
+                f"[bg][over]overlay=x=0:y={y_pos}:eof_action=repeat[v]"
             )
 
             cmd = [
